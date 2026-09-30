@@ -1,0 +1,57 @@
+name: sharedmemory
+networks:
+  sharedmemory_net:
+    name: sharedmemory_net
+volumes:
+  sharedmemory_pg_data:
+  sharedmemory_minio_data:
+  sharedmemory_os_data:
+  sharedmemory_qdrant_data:
+  sharedmemory_redis_data:
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sm
+      POSTGRES_PASSWORD: sm
+      POSTGRES_DB: sharedmemory
+    ports: ["15432:5432"]
+    volumes: ["sharedmemory_pg_data:/var/lib/postgresql/data"]
+    networks: [sharedmemory_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sm -d sharedmemory"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7
+    ports: ["16379:6379"]
+    volumes: ["sharedmemory_redis_data:/data"]
+    networks: [sharedmemory_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: smminio
+      MINIO_ROOT_PASSWORD: smminio_secret
+    ports: ["19000:9000", "19001:9001"]
+    volumes: ["sharedmemory_minio_data:/data"]
+    networks: [sharedmemory_net]
+  opensearch:
+    image: opensearchproject/opensearch:2.17.0
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    ports: ["19200:9200"]
+    volumes: ["sharedmemory_os_data:/usr/share/opensearch/data"]
+    networks: [sharedmemory_net]
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    ports: ["16333:6333"]
+    volumes: ["sharedmemory_qdrant_data:/qdrant/storage"]
+    networks: [sharedmemory_net]
