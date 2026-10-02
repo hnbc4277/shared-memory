@@ -10,15 +10,17 @@ const TOGGLES: { key: keyof Policy; label: string; hint: string }[] = [
   { key: "artifact_searchable", label: "成稿参与检索", hint: "允许召回时检索已保存的成稿内容" },
 ];
 
+const RETENTION_OPTIONS = [0, 7, 30, 90, 180, 365];
+
 export default function SettingsPage() {
   const { api, notify, logout } = useApp();
   const policy = useLoad(() => api.get<Policy>("/v1/policy"), [api]);
   const audit = useLoad(() => api.get<{ id: string; action: string; meta: unknown; created_at: string }[]>("/v1/audit", { limit: 50 }), [api]);
 
-  async function set(key: keyof Policy, value: boolean) {
+  async function set(key: keyof Policy, value: boolean | number) {
     try {
       await api.put("/v1/policy", { [key]: value });
-      await policy.reload();
+      await Promise.all([policy.reload(), audit.reload()]);
       notify("设置已保存");
     } catch (e) {
       notify((e as Error).message, "error");
@@ -44,12 +46,23 @@ export default function SettingsPage() {
           {policy.data && TOGGLES.map((t) => (
             <Toggle key={t.key} label={t.label} hint={t.hint} checked={Boolean(policy.data![t.key])} onChange={(v) => void set(t.key, v)} />
           ))}
+          {policy.data && (
+            <label className="toggle retention">
+              <div>
+                <strong>原文保留时长</strong>
+                <small>超过时长的会话将删除原文、消息与附件；由其总结出的记忆、凭证和成稿会保留</small>
+              </div>
+              <select value={policy.data.retention_days} onChange={(e) => void set("retention_days", Number(e.target.value))}>
+                {RETENTION_OPTIONS.map((d) => <option key={d} value={d}>{d === 0 ? "永久保留" : `${d} 天`}</option>)}
+              </select>
+            </label>
+          )}
         </div>
       </Section>
 
       <Section title="审计日志" actions={<span className="muted small">凭证查看、同意、删除等敏感操作</span>}>
         {audit.data?.length === 0 && <Empty>暂无记录。</Empty>}
-        <table className="table">
+        {!!audit.data?.length && <table className="table">
           <tbody>
             {audit.data?.map((e) => (
               <tr key={e.id}>
@@ -59,7 +72,7 @@ export default function SettingsPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table>}
       </Section>
 
       <Section title="即将推出（M3）">

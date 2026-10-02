@@ -115,6 +115,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; margi
 .toggle input:focus-visible + .toggle-track { outline: 2px solid var(--accent-soft); }
 .toggle strong { display: block; font-weight: 500; }
 .toggle small { color: var(--muted); }
+.toggle.retention { cursor: default; justify-content: space-between; align-items: center; }
 
 .empty { color: var(--muted); padding: 18px; text-align: center; border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; }
 .error-line { color: var(--danger); background: #fbf0ed; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
