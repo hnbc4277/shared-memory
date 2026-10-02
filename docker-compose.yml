@@ -55,3 +55,28 @@ services:
     ports: ["16333:6333"]
     volumes: ["sharedmemory_qdrant_data:/qdrant/storage"]
     networks: [sharedmemory_net]
+  # Opt-in app containers: docker compose --profile app up -d --build
+  api:
+    profiles: [app]
+    build: .
+    image: sharedmemory/app:local
+    command: ["api"]
+    ports: ["18080:18080"]
+    volumes: ["./deploy/compose.env:/app/compose.env:ro"]
+    networks: [sharedmemory_net]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio: {condition: service_started}
+      opensearch: {condition: service_started}
+      qdrant: {condition: service_started}
+    restart: unless-stopped
+  worker:
+    profiles: [app]
+    image: sharedmemory/app:local
+    command: ["worker"]
+    volumes: ["./deploy/compose.env:/app/compose.env:ro"]
+    networks: [sharedmemory_net]
+    depends_on:
+      api: {condition: service_started}
+    restart: unless-stopped
