@@ -103,6 +103,24 @@ func TestRecall_IsolatedByAccountAndProject(t *testing.T) {
 	}
 }
 
+func TestRecall_UnrelatedMemoryIsNotReturned(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestPool(t)
+	idx := testIndex(t)
+	svc, mem := newService(pool, idx)
+	a := testutil.NewAccount(t, pool)
+	t.Cleanup(func() { _ = idx.DeleteAccount(context.Background(), a) })
+	mustAdd(t, mem, a, memory.Memory{Scope: semantic.ScopeGlobal, Kind: semantic.KindPreference, Body: "我偏好使用 Go 写后端"})
+
+	res, err := svc.Recall(ctx, a, recall.Request{Query: "向量库 Qdrant 怎么隔离", TopK: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 0 {
+		t.Fatalf("memory sharing no terms with the query must not be recalled: %+v", res.Hits)
+	}
+}
+
 func TestRecall_InvalidatedMemoryDisappears(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.TestPool(t)

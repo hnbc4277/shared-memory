@@ -15,10 +15,16 @@ import (
 
 const DefaultCollection = "sm_memories"
 
+// DefaultMinScore drops vector hits below this cosine similarity. With the
+// 64-dim hash embedder, hash collisions give texts with no shared tokens
+// scores up to ~0.15, while genuinely related texts score ~0.3+.
+const DefaultMinScore = 0.25
+
 type Qdrant struct {
 	baseURL    string
 	collection string
 	dim        int
+	MinScore   float64
 	http       *http.Client
 }
 
@@ -27,7 +33,7 @@ func NewQdrant(baseURL, collection string, dim int) *Qdrant {
 		collection = DefaultCollection
 	}
 	return &Qdrant{baseURL: strings.TrimRight(baseURL, "/"), collection: collection, dim: dim,
-		http: &http.Client{Timeout: 10 * time.Second}}
+		MinScore: DefaultMinScore, http: &http.Client{Timeout: 10 * time.Second}}
 }
 
 func (q *Qdrant) do(ctx context.Context, method, path string, body any) ([]byte, int, error) {
@@ -119,12 +125,16 @@ func (q *Qdrant) Search(ctx context.Context, query Query) ([]Hit, error) {
 	if query.Limit <= 0 {
 		query.Limit = 10
 	}
-	b, status, err := q.do(ctx, http.MethodPost, "/collections/"+q.collection+"/points/search", map[string]any{
+	body := map[string]any{
 		"vector":       query.Vector,
 		"limit":        query.Limit,
 		"filter":       q.filter(query),
 		"with_payload": []string{"doc_type"},
-	})
+	}
+	if q.MinScore > 0 {
+		body["score_threshold"] = q.MinScore
+	}
+	b, status, err := q.do(ctx, http.MethodPost, "/collections/"+q.collection+"/points/search", body)
 	if err != nil {
 		return nil, err
 	}
