@@ -10,6 +10,7 @@ import (
 
 	"sharedmemory/internal/app"
 	"sharedmemory/internal/config"
+	"sharedmemory/internal/retention"
 	"sharedmemory/internal/vault"
 )
 
@@ -31,7 +32,7 @@ func main() {
 	}
 	defer a.Close()
 
-	go purgeExpiredCandidates(ctx, vault.NewStore(a.Pool, nil))
+	go housekeep(ctx, vault.NewStore(a.Pool, nil), &retention.Purger{Pool: a.Pool, Objects: a.Objects})
 
 	consumer, _ := os.Hostname()
 	if consumer == "" {
@@ -43,14 +44,22 @@ func main() {
 	}
 }
 
-// purgeExpiredCandidates drops unanswered vault candidates (encrypted secrets
-// the user never consented to keep) once they expire.
-func purgeExpiredCandidates(ctx context.Context, s *vault.Store) {
+// housekeep hourly drops unanswered vault candidates (encrypted secrets the
+// user never consented to keep), expired artifact candidates, and evidence
+// older than each account's retention_days.
+func housekeep(ctx context.Context, s *vault.Store, p *retention.Purger) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
 		if err := s.PurgeExpired(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("purge vault candidates: %v", err)
+		}
+		st, err := p.Run(ctx)
+		if err != nil && ctx.Err() == nil {
+			log.Printf("retention purge: %v", err)
+		}
+		if st.Sessions > 0 || st.ArtifactCandidates > 0 {
+			log.Printf("retention purge: %d sessions, %d attachments, %d artifact candidates", st.Sessions, st.Attachments, st.ArtifactCandidates)
 		}
 		select {
 		case <-ctx.Done():
