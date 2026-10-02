@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+sharedmemory/__init__.py
+sharedmemory.egg-info/PKG-INFO
+sharedmemory.egg-info/SOURCES.txt
+sharedmemory.egg-info/dependency_links.txt
+sharedmemory.egg-info/requires.txt
+sharedmemory.egg-info/top_level.txt
+tests/test_client.py
