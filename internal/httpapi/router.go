@@ -2,85 +2,191 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"sharedmemory/internal/account"
+	"sharedmemory/internal/artifact"
+	"sharedmemory/internal/attachment"
+	"sharedmemory/internal/audit"
 	"sharedmemory/internal/auth"
+	"sharedmemory/internal/index"
+	"sharedmemory/internal/memory"
+	"sharedmemory/internal/policy"
+	"sharedmemory/internal/project"
+	"sharedmemory/internal/recall"
+	"sharedmemory/internal/session"
+	"sharedmemory/internal/vault"
 )
 
-type Router struct {
-	auth *auth.Store
+type Deps struct {
+	Pool        *pgxpool.Pool
+	Auth        *auth.Store
+	Projects    *project.Store
+	Policies    *policy.Store
+	Sessions    *session.Service
+	Attachments *attachment.Service
+	Memories    *memory.Store
+	Recall      *recall.Service
+	Vault       *vault.Store
+	Artifacts   *artifact.Store
+	Audit       *audit.Log
+	Deleter     *account.Deleter
+	Index       *index.Service
+	CORSOrigins []string
 }
 
-func NewRouter(pool *pgxpool.Pool) http.Handler {
-	r := &Router{auth: auth.NewStore(pool)}
+type Router struct {
+	Deps
+}
+
+func NewRouter(d Deps) http.Handler {
+	r := &Router{Deps: d}
 	mux := http.NewServeMux()
+	authed := BearerAuth(d.Auth)
+	handle := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, authed(h))
+	}
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("POST /v1/auth/register", r.handleRegister)
-	mux.Handle("POST /v1/auth/api-keys", BearerAuth(r.auth)(http.HandlerFunc(r.handleCreateAPIKey)))
-	return mux
+
+	handle("GET /v1/me", r.handleMe)
+	handle("POST /v1/auth/api-keys", r.handleCreateAPIKey)
+	handle("GET /v1/auth/api-keys", r.handleListAPIKeys)
+	handle("DELETE /v1/auth/api-keys/{id}", r.handleRevokeAPIKey)
+
+	handle("POST /v1/projects", r.handleCreateProject)
+	handle("GET /v1/projects", r.handleListProjects)
+	handle("DELETE /v1/projects/{id}", r.handleDeleteProject)
+	handle("GET /v1/policy", r.handleGetPolicy)
+	handle("PUT /v1/policy", r.handlePutPolicy)
+	handle("GET /v1/audit", r.handleListAudit)
+	handle("DELETE /v1/account", r.handleDeleteAccount)
+
+	handle("POST /v1/ingest", r.handleIngest)
+	handle("GET /v1/sessions", r.handleListSessions)
+	handle("GET /v1/sessions/{id}", r.handleGetSession)
+	handle("POST /v1/attachments", r.handleUploadAttachment)
+	handle("GET /v1/attachments/{id}", r.handleGetAttachment)
+
+	handle("POST /v1/recall", r.handleRecall)
+	handle("GET /v1/memories", r.handleListMemories)
+	handle("PUT /v1/memories/{id}", r.handleSupersedeMemory)
+	handle("DELETE /v1/memories/{id}", r.handleInvalidateMemory)
+	handle("GET /v1/profile", r.handleGetProfile)
+
+	handle("GET /v1/candidates", r.handleListCandidates)
+	handle("GET /v1/vault/candidates", r.handleListVaultCandidates)
+	handle("POST /v1/vault/candidates/{id}/accept", r.handleAcceptVault)
+	handle("POST /v1/vault/candidates/{id}/reject", r.handleRejectVault)
+	handle("GET /v1/vault/items", r.handleListVault)
+	handle("POST /v1/vault/items", r.handleCreateVault)
+	handle("PUT /v1/vault/items/{id}", r.handleUpdateVault)
+	handle("DELETE /v1/vault/items/{id}", r.handleDeleteVault)
+	handle("POST /v1/vault/items/{id}/reveal", r.handleRevealVault)
+
+	handle("GET /v1/artifacts/candidates", r.handleListArtifactCandidates)
+	handle("POST /v1/artifacts/candidates/{id}/accept", r.handleAcceptArtifact)
+	handle("POST /v1/artifacts/candidates/{id}/reject", r.handleRejectArtifact)
+	handle("GET /v1/artifacts", r.handleListArtifacts)
+	handle("POST /v1/artifacts", r.handleCreateArtifact)
+	handle("GET /v1/artifacts/{id}", r.handleGetArtifact)
+	handle("GET /v1/artifacts/{id}/export", r.handleExportArtifact)
+	handle("PUT /v1/artifacts/{id}", r.handleUpdateArtifact)
+	handle("DELETE /v1/artifacts/{id}", r.handleDeleteArtifact)
+
+	return CORS(d.CORSOrigins)(mux)
 }
 
-type registerReq struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-type registerResp struct {
-	AccountID string `json:"account_id"`
-	APIKey    string `json:"api_key"`
-}
-
-func (r *Router) handleRegister(w http.ResponseWriter, req *http.Request) {
-	var body registerReq
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-	id, key, err := r.auth.Register(req.Context(), body.Email, body.Password)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	writeJSON(w, http.StatusCreated, registerResp{
-		AccountID: id.String(),
-		APIKey:    key,
-	})
-}
-
-type createKeyReq struct {
-	Name string `json:"name"`
-}
-
-type createKeyResp struct {
-	APIKey string `json:"api_key"`
-}
-
-func (r *Router) handleCreateAPIKey(w http.ResponseWriter, req *http.Request) {
-	accountID, ok := AccountIDFromContext(req.Context())
-	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	var body createKeyReq
-	_ = json.NewDecoder(req.Body).Decode(&body)
-	if body.Name == "" {
-		body.Name = "additional"
-	}
-	key, err := r.auth.CreateAPIKey(req.Context(), accountID, body.Name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, http.StatusCreated, createKeyResp{APIKey: key})
+type errorBody struct {
+	Error string `json:"error"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, errorBody{Error: msg})
+}
+
+// fail maps domain errors to HTTP statuses; unknown errors are logged and hidden.
+func fail(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, session.ErrInvalid):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, session.ErrNotFound), errors.Is(err, project.ErrNotFound),
+		errors.Is(err, vault.ErrNotFound), errors.Is(err, artifact.ErrNotFound),
+		errors.Is(err, memory.ErrNotFound), errors.Is(err, attachment.ErrNotFound),
+		errors.Is(err, account.ErrNotFound):
+		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, attachment.ErrUnsupportedType):
+		writeError(w, http.StatusUnsupportedMediaType, err.Error())
+	case errors.Is(err, attachment.ErrTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
+	case errors.Is(err, attachment.ErrNotStored):
+		writeError(w, http.StatusGone, err.Error())
+	case errors.Is(err, auth.ErrUnauthorized):
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+	default:
+		log.Printf("internal error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+	}
+}
+
+func decode(w http.ResponseWriter, req *http.Request, v any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, req.Body, 8<<20))
+	if err := dec.Decode(v); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return false
+	}
+	return true
+}
+
+func accountOf(req *http.Request) uuid.UUID {
+	id, _ := AccountIDFromContext(req.Context())
+	return id
+}
+
+func pathID(w http.ResponseWriter, req *http.Request) (uuid.UUID, bool) {
+	id, err := uuid.Parse(req.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id must be a uuid")
+		return uuid.Nil, false
+	}
+	return id, true
+}
+
+// optionalUUID parses an optional uuid query/body value; "" means absent.
+func optionalUUID(w http.ResponseWriter, raw, field string) (*uuid.UUID, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, true
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, field+" must be a uuid")
+		return nil, false
+	}
+	return &id, true
+}
+
+func (r *Router) audit(req *http.Request, action string, meta map[string]any) {
+	if r.Audit == nil {
+		return
+	}
+	if err := r.Audit.Record(req.Context(), accountOf(req), action, meta); err != nil {
+		log.Printf("audit %s: %v", action, err)
+	}
 }

@@ -19,6 +19,8 @@ type Config struct {
 	OpenSearchURL  string
 	QdrantURL      string
 	VaultMasterKey string
+	// CORSOrigins lists browser origins allowed to call the API (the web console).
+	CORSOrigins []string
 }
 
 func Load(path string) (Config, error) {
@@ -51,6 +53,11 @@ func Load(path string) (Config, error) {
 		OpenSearchURL:  vals["OPENSEARCH_URL"],
 		QdrantURL:      vals["QDRANT_URL"],
 		VaultMasterKey: vals["VAULT_MASTER_KEY"],
+	}
+	for _, o := range strings.Split(vals["CORS_ORIGINS"], ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			cfg.CORSOrigins = append(cfg.CORSOrigins, o)
+		}
 	}
 	if cfg.PostgresDSN == "" || cfg.HTTPAddr == "" {
 		return Config{}, fmt.Errorf("missing required env")

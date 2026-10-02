@@ -2,14 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"sharedmemory/internal/app"
 	"sharedmemory/internal/config"
-	"sharedmemory/internal/db"
-	"sharedmemory/internal/httpapi"
 )
 
 func main() {
@@ -21,22 +23,24 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ctx := context.Background()
-	pool, err := db.Connect(ctx, cfg.PostgresDSN)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	a, err := app.New(ctx, cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer pool.Close()
+	defer a.Close()
 
-	migrations := "migrations"
-	if _, err := os.Stat(migrations); err != nil {
-		migrations = filepath.Join("..", "..", "migrations")
-	}
-	if err := db.Migrate(ctx, pool, migrations); err != nil {
+	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: a.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdown)
+	}()
+	log.Println("api listening", cfg.HTTPAddr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
-
-	handler := httpapi.NewRouter(pool)
-	log.Println("listening", cfg.HTTPAddr)
-	log.Fatal(http.ListenAndServe(cfg.HTTPAddr, handler))
 }

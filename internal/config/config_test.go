@@ -37,3 +37,18 @@ func TestLoad_ReadsProjectEnvOnly(t *testing.T) {
 		t.Fatalf("must use project ports, got %s", cfg.PostgresDSN)
 	}
 }
+
+func TestLoad_ParsesCORSOrigins(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	content := "HTTP_ADDR=:18080\nPOSTGRES_DSN=postgres://x\nCORS_ORIGINS= http://a:1 , http://b:2 ,\n"
+	if err := os.WriteFile(envPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.CORSOrigins) != 2 || cfg.CORSOrigins[0] != "http://a:1" || cfg.CORSOrigins[1] != "http://b:2" {
+		t.Fatalf("unexpected origins: %#v", cfg.CORSOrigins)
+	}
+}
