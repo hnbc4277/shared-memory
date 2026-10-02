@@ -1,0 +1,29 @@
+# Example DeepSeek Harness cordis plugins for Shared Memory.
+# Merge into your project's cordis.yml (or copy as cordis.yml).
+#
+# Prerequisites:
+#   - shared-memory-mcp on PATH (or absolute path below)
+#   - smhook on PATH
+#   - SHARED_MEMORY_API_KEY / SHARED_MEMORY_API_URL set in the environment
+#   - hooks.json beside this file (see hooks.json.example)
+
+plugins:
+  # MCP: expose memory_recall / memory_ingest tools to the harness model
+  - id: mcp-shared-memory
+    name: "@deepseek-ai/dsh-mcp-client"
+    config:
+      serverName: shared-memory
+      transport: stdio
+      command: shared-memory-mcp
+      # args: []
+      env:
+        SHARED_MEMORY_API_KEY: !!js process.env.SHARED_MEMORY_API_KEY
+        SHARED_MEMORY_API_URL: !!js 'process.env.SHARED_MEMORY_API_URL || "http://127.0.0.1:18765"'
+
+  # Codex-dialect hooks → same smhook binary used by Codex install
+  - id: hooks-shared-memory
+    name: "@deepseek-ai/dsh-hooks-codex"
+    config:
+      configPath: ./hooks.json
+      # Optional model stamp on hook payloads:
+      # model: deepseek-v4

@@ -1,0 +1,6 @@
+name: shared_memory
+version: 0.1.0
+description: "Shared Memory provider — cross-agent recall via SHARED_MEMORY_API_URL"
+hooks:
+  - on_session_end
+  - on_delegation

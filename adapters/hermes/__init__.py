@@ -1,0 +1,215 @@
+"""Hermes MemoryProvider plugin for Shared Memory."""
+
+from __future__ import annotations
+
+import logging
+import os
+import sys
+import threading
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+_AGENT = "hermes"
+
+
+def _ensure_sdk() -> None:
+    """Prefer installed `sharedmemory`; fall back to repo-relative sdk/python."""
+    try:
+        import sharedmemory  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+    here = Path(__file__).resolve().parent
+    for candidate in (
+        here / ".." / ".." / "sdk" / "python",
+        here.parent.parent / "sdk" / "python",
+    ):
+        p = candidate.resolve()
+        if (p / "sharedmemory").is_dir() and str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+            return
+
+
+_ensure_sdk()
+from sharedmemory import Client  # noqa: E402
+
+
+class SharedMemoryProvider:
+    """Thin MemoryProvider that only calls the Shared Memory Python SDK."""
+
+    def __init__(self) -> None:
+        self._client: Optional[Client] = None
+        self._session_id = ""
+        self._agent_context = "primary"
+        self._sync_thread: Optional[threading.Thread] = None
+        self._last_prefetch = ""
+
+    @property
+    def name(self) -> str:
+        return "shared_memory"
+
+    def is_available(self) -> bool:
+        # Credentials only — no network. URL falls back to local daemon in Client.
+        return bool(os.environ.get("SHARED_MEMORY_API_KEY"))
+
+    def unavailable_reason(self) -> str:
+        if not os.environ.get("SHARED_MEMORY_API_KEY"):
+            return "Set SHARED_MEMORY_API_KEY (and usually SHARED_MEMORY_API_URL)."
+        return ""
+
+    def initialize(self, session_id: str, **kwargs: Any) -> None:
+        self._session_id = session_id or ""
+        self._agent_context = str(kwargs.get("agent_context") or "primary")
+        self._client = Client(
+            base_url=os.environ.get("SHARED_MEMORY_API_URL") or "http://127.0.0.1:18765",
+            api_key=os.environ.get("SHARED_MEMORY_API_KEY") or None,
+        )
+
+    def get_config_schema(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "key": "api_key",
+                "description": "Shared Memory API key",
+                "secret": True,
+                "required": True,
+                "env_var": "SHARED_MEMORY_API_KEY",
+            },
+            {
+                "key": "api_url",
+                "description": "Shared Memory API base URL (or local daemon)",
+                "secret": False,
+                "required": False,
+                "env_var": "SHARED_MEMORY_API_URL",
+                "default": "http://127.0.0.1:18765",
+            },
+        ]
+
+    def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
+        # Secrets go to .env via Hermes; nothing else to persist.
+        return
+
+    def system_prompt_block(self) -> str:
+        return (
+            "Shared Memory is active. Relevant cross-session context may be "
+            "injected before each turn via prefetch."
+        )
+
+    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+        return []
+
+    def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs: Any) -> str:
+        return "{}"
+
+    def prefetch(self, query: str, *, session_id: str = "") -> str:
+        if not self._client or not (query or "").strip():
+            return ""
+        try:
+            result = self._client.recall(query=query)
+            ctx = ""
+            if isinstance(result, dict):
+                ctx = str(result.get("context") or "")
+            self._last_prefetch = ctx
+            return ctx
+        except Exception as e:
+            logger.warning("shared_memory prefetch failed: %s", e)
+            return ""
+
+    def sync_turn(
+        self,
+        user_content: str,
+        assistant_content: str,
+        *,
+        session_id: str = "",
+        messages: Optional[List[Dict[str, Any]]] = None,
+        **kwargs: Any,
+    ) -> None:
+        if self._agent_context and self._agent_context != "primary":
+            return
+        if not self._client:
+            return
+        sid = session_id or self._session_id
+        client = self._client
+
+        def _sync() -> None:
+            try:
+                if user_content:
+                    client.ingest(
+                        agent=_AGENT,
+                        agent_path=_AGENT,
+                        role="user",
+                        content=user_content,
+                        external_session_id=sid or None,
+                        skills=[],
+                        plugins=[],
+                        tools=[],
+                    )
+                if assistant_content:
+                    client.ingest(
+                        agent=_AGENT,
+                        agent_path=_AGENT,
+                        role="assistant",
+                        content=assistant_content,
+                        external_session_id=sid or None,
+                        skills=[],
+                        plugins=[],
+                        tools=[],
+                    )
+            except Exception as e:
+                logger.warning("shared_memory sync_turn failed: %s", e)
+
+        if self._sync_thread and self._sync_thread.is_alive():
+            self._sync_thread.join(timeout=5.0)
+        self._sync_thread = threading.Thread(target=_sync, name="shared_memory-sync", daemon=True)
+        self._sync_thread.start()
+
+    def on_delegation(self, task: str, result: str, *, child_session_id: str = "", **kwargs: Any) -> None:
+        if not self._client:
+            return
+        sub = (
+            str(kwargs.get("agent_identity") or kwargs.get("subagent_name") or "")
+            or (child_session_id[:32] if child_session_id else "sub")
+        )
+        path = f"{_AGENT}/{sub}"
+        sid = child_session_id or self._session_id
+        try:
+            if task:
+                self._client.ingest(
+                    agent=_AGENT,
+                    agent_path=path,
+                    role="user",
+                    content=task,
+                    external_session_id=sid or None,
+                    skills=[],
+                    plugins=[],
+                    tools=[],
+                )
+            if result:
+                self._client.ingest(
+                    agent=_AGENT,
+                    agent_path=path,
+                    role="assistant",
+                    content=result,
+                    external_session_id=sid or None,
+                    skills=[],
+                    plugins=[],
+                    tools=[],
+                )
+        except Exception as e:
+            logger.warning("shared_memory on_delegation failed: %s", e)
+
+    def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
+        # Turns already synced; nothing extra required.
+        return
+
+    def shutdown(self) -> None:
+        if self._sync_thread and self._sync_thread.is_alive():
+            self._sync_thread.join(timeout=5.0)
+        self._client = None
+
+
+def register(ctx: Any) -> None:
+    """Hermes memory plugin entry: ctx.register_memory_provider(...)."""
+    ctx.register_memory_provider(SharedMemoryProvider())

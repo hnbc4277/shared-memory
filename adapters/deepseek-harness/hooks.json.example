@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "hooks": {
+    "SessionStart": [
+      {
+        "name": "shared-memory",
+        "command": "env SHARED_MEMORY_HOOK_SURFACE=codex SHARED_MEMORY_AGENT=deepseek-harness smhook"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "name": "shared-memory",
+        "command": "env SHARED_MEMORY_HOOK_SURFACE=codex SHARED_MEMORY_AGENT=deepseek-harness smhook"
+      }
+    ],
+    "Stop": [
+      {
+        "name": "shared-memory",
+        "command": "env SHARED_MEMORY_HOOK_SURFACE=codex SHARED_MEMORY_AGENT=deepseek-harness smhook"
+      }
+    ],
+    "SubagentStop": [
+      {
+        "name": "shared-memory",
+        "command": "env SHARED_MEMORY_HOOK_SURFACE=codex SHARED_MEMORY_AGENT=deepseek-harness smhook"
+      }
+    ]
+  }
+}

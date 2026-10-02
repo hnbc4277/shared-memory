@@ -1,0 +1,14 @@
+{
+  "id": "shared-memory",
+  "name": "Shared Memory",
+  "description": "Cross-agent memory via Shared Memory ingest/recall",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiUrl": { "type": "string", "description": "Override SHARED_MEMORY_API_URL" },
+      "apiKey": { "type": "string", "description": "Override SHARED_MEMORY_API_KEY" }
+    }
+  }
+}
