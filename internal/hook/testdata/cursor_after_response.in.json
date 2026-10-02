@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "afterAgentResponse",
+  "conversation_id": "conv_abc",
+  "text": "assistant reply"
+}

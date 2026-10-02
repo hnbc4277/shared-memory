@@ -1,0 +1,9 @@
+{
+  "ingest_count": 1,
+  "ingest": {
+    "agent": "codex",
+    "role": "user",
+    "content": "what did we decide?",
+    "external_session_id": "codex:sess_1"
+  }
+}

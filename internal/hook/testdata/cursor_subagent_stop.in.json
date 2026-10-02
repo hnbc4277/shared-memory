@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "subagentStop",
+  "conversation_id": "conv_abc",
+  "subagent_type": "explore",
+  "summary": "found files"
+}

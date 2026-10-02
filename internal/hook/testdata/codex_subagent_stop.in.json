@@ -1,0 +1,6 @@
+{
+  "type": "SubagentStop",
+  "session_id": "sess_1",
+  "agent_type": "worker",
+  "last_assistant_message": "done"
+}

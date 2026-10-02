@@ -1,0 +1,9 @@
+{
+  "ingest_count": 1,
+  "ingest": {
+    "agent": "cursor",
+    "role": "assistant",
+    "content": "assistant reply",
+    "external_session_id": "cursor:conv_abc"
+  }
+}

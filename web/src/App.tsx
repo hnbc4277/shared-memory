@@ -9,6 +9,7 @@ import ArtifactsPage from "./pages/ArtifactsPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import SettingsPage from "./pages/SettingsPage";
 import KeysPage from "./pages/KeysPage";
+import DevicePage from "./pages/DevicePage";
 
 const KEY_STORAGE = "sm.apiKey";
 
@@ -20,6 +21,7 @@ const TABS = [
   { id: "projects", label: "项目", page: ProjectsPage },
   { id: "settings", label: "设置", page: SettingsPage },
   { id: "keys", label: "密钥", page: KeysPage },
+  { id: "device", label: "授权设备", page: DevicePage },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -59,6 +61,15 @@ export default function App() {
     location.hash = tab;
   }, [tab]);
 
+  useEffect(() => {
+    const onHash = () => {
+      const id = location.hash.slice(1) as TabId;
+      if (TABS.some((t) => t.id === id)) setTab(id);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
   if (!apiKey) {
     return (
       <Login
@@ -85,7 +96,7 @@ export default function App() {
             </div>
           </div>
           <nav>
-            {TABS.map((t) => (
+            {TABS.filter((t) => t.id !== "device").map((t) => (
               <button key={t.id} className={t.id === tab ? "nav active" : "nav"} onClick={() => setTab(t.id)}>
                 {t.label}
               </button>

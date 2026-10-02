@@ -75,11 +75,11 @@ export default function SettingsPage() {
         </table>}
       </Section>
 
-      <Section title="即将推出（M3）">
+      <Section title="设备码与守护进程">
         <ul className="muted small">
-          <li>设备码登录：在 CLI / 智能体中扫码或输入短码完成授权</li>
-          <li>本地守护进程：自动采集各智能体对话并离线缓冲</li>
-          <li>官方适配器：Cursor、Codex、爱马仕、小龙虾、DeepSeek-Harness</li>
+          <li>设备码登录：本机运行 <code>smctl login</code>，在「密钥 → 授权设备」确认用户码</li>
+          <li>本地守护进程：<code>shared-memory-daemon</code> 负责离线缓冲与自动上报</li>
+          <li>官方适配器：Cursor / Codex（<code>smctl install</code>）、爱马仕、小龙虾、DeepSeek-Harness（见 <code>adapters/</code>）</li>
         </ul>
       </Section>
 

@@ -1,0 +1,10 @@
+{
+  "ingest_count": 1,
+  "ingest": {
+    "agent": "cursor",
+    "agent_path": "cursor",
+    "role": "user",
+    "content": "hello from cursor",
+    "external_session_id": "cursor:conv_abc"
+  }
+}

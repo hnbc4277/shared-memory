@@ -1,0 +1,10 @@
+{
+  "ingest_count": 1,
+  "ingest": {
+    "agent": "codex",
+    "agent_path": "codex/worker",
+    "role": "assistant",
+    "content": "done",
+    "external_session_id": "codex:sess_1"
+  }
+}

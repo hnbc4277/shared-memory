@@ -1,0 +1,9 @@
+{
+  "ingest_count": 1,
+  "ingest": {
+    "agent": "codex",
+    "role": "assistant",
+    "content": "we ship m3",
+    "external_session_id": "codex:sess_1"
+  }
+}

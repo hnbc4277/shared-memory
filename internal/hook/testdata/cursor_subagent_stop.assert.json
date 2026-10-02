@@ -1,0 +1,10 @@
+{
+  "ingest_count": 1,
+  "ingest": {
+    "agent": "cursor",
+    "agent_path": "cursor/explore",
+    "role": "assistant",
+    "content": "found files",
+    "external_session_id": "cursor:conv_abc"
+  }
+}
