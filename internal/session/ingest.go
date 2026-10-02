@@ -231,6 +231,10 @@ func (s *Service) Ingest(ctx context.Context, accountID uuid.UUID, req IngestMes
 		s.dropObject(objectKey)
 		return IngestResult{}, fmt.Errorf("insert event: %w", err)
 	}
+	if err := insertToolCalls(ctx, tx, accountID, sessionID, messageID, req.ToolCalls); err != nil {
+		s.dropObject(objectKey)
+		return IngestResult{}, err
+	}
 	if len(attachmentIDs) > 0 {
 		if _, err := tx.Exec(ctx, `UPDATE attachments SET session_id = $3, message_id = $4,
 			project_id = COALESCE(project_id, $5)
@@ -308,4 +312,39 @@ func firstLine(s string, n int) string {
 		}
 	}
 	return "未命名会话"
+}
+
+const maxToolOutputRunes = 4000
+
+func insertToolCalls(ctx context.Context, tx pgx.Tx, accountID, sessionID, messageID uuid.UUID, calls []ToolCall) error {
+	for _, c := range calls {
+		kind := strings.TrimSpace(c.Kind)
+		name := strings.TrimSpace(c.Name)
+		if name == "" {
+			continue
+		}
+		if kind != "plugin" && kind != "tool" {
+			kind = "tool"
+		}
+		out := c.Output
+		if r := []rune(out); len(r) > maxToolOutputRunes {
+			out = string(r[:maxToolOutputRunes]) + "…"
+		}
+		started := time.Now().UTC()
+		if t, err := time.Parse(time.RFC3339, strings.TrimSpace(c.StartedAt)); err == nil {
+			started = t.UTC()
+		}
+		var ended *time.Time
+		if t, err := time.Parse(time.RFC3339, strings.TrimSpace(c.EndedAt)); err == nil {
+			u := t.UTC()
+			ended = &u
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO tool_calls (account_id, session_id, message_id, kind, name, started_at, ended_at, output_truncated)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+			accountID, sessionID, messageID, kind, name, started, ended, out); err != nil {
+			return fmt.Errorf("insert tool_call: %w", err)
+		}
+	}
+	return nil
 }

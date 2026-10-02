@@ -15,8 +15,13 @@ func (r *Router) handleIngest(w http.ResponseWriter, req *http.Request) {
 	if !decode(w, req, &body) {
 		return
 	}
-	res, err := r.Sessions.Ingest(req.Context(), accountOf(req), body)
+	accountID := accountOf(req)
+	res, err := r.Sessions.Ingest(req.Context(), accountID, body)
 	if err != nil {
+		if errors.Is(err, session.ErrInvalid) && r.Quarantine != nil {
+			aid := accountID
+			_ = r.Quarantine.Add(req.Context(), &aid, body.Agent, body.AgentPath, err.Error(), body)
+		}
 		fail(w, err)
 		return
 	}

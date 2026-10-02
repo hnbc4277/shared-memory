@@ -62,3 +62,20 @@ func TestCipher_RoundTripAndAccountIsolation(t *testing.T) {
 		t.Fatal("short master key must be rejected")
 	}
 }
+
+func TestWrappedDEK_RoundTrip(t *testing.T) {
+	salt, wrapped, nonce, dek, err := vault.NewWrappedDEK("password123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := vault.UnwrapDEK("password123", salt, wrapped, nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, dek) {
+		t.Fatal("dek mismatch")
+	}
+	if _, err := vault.UnwrapDEK("wrong-password", salt, wrapped, nonce); err == nil {
+		t.Fatal("wrong password must fail")
+	}
+}

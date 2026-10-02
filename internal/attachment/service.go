@@ -81,6 +81,7 @@ type Attachment struct {
 	ContentHash  string     `json:"content_hash"`
 	BinaryStored bool       `json:"binary_stored"`
 	DerivedText  *string    `json:"derived_text,omitempty"`
+	HasThumbnail bool       `json:"has_thumbnail"`
 	CreatedAt    time.Time  `json:"created_at"`
 }
 
@@ -141,6 +142,7 @@ func (s *Service) Upload(ctx context.Context, accountID uuid.UUID, u Upload) (At
 	a := Attachment{ID: uuid.New(), ProjectID: u.ProjectID, AgentPath: strings.TrimSpace(u.AgentPath),
 		Filename: filename, MIME: m, SizeBytes: int64(len(data)), ContentHash: hex.EncodeToString(sum[:])}
 	var key *string
+	var thumbKey *string
 	if pol.StoreAttachments {
 		k := objectstore.AttachmentKey(accountID, u.ProjectID, a.ID, filename)
 		if err := s.Objects.Put(ctx, k, bytes.NewReader(data), int64(len(data)), m); err != nil {
@@ -148,18 +150,30 @@ func (s *Service) Upload(ctx context.Context, accountID uuid.UUID, u Upload) (At
 		}
 		key = &k
 		a.BinaryStored = true
+		if thumb, ok := MakeThumbnail(m, data); ok {
+			tk := objectstore.ThumbnailKey(accountID, u.ProjectID, a.ID)
+			if err := s.Objects.Put(ctx, tk, bytes.NewReader(thumb), int64(len(thumb)), "image/jpeg"); err != nil {
+				log.Printf("thumbnail put: %v", err)
+			} else {
+				thumbKey = &tk
+				a.HasThumbnail = true
+			}
+		}
 	} else {
 		warnings = append(warnings, "attachment_binary_not_stored")
 	}
 	err = s.Pool.QueryRow(ctx, `
 		INSERT INTO attachments (id, account_id, project_id, agent_path, filename, mime, size_bytes, content_hash,
-			object_key, binary_stored)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING created_at`,
-		a.ID, accountID, a.ProjectID, a.AgentPath, a.Filename, a.MIME, a.SizeBytes, a.ContentHash, key, a.BinaryStored,
+			object_key, binary_stored, thumbnail_object_key)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING created_at`,
+		a.ID, accountID, a.ProjectID, a.AgentPath, a.Filename, a.MIME, a.SizeBytes, a.ContentHash, key, a.BinaryStored, thumbKey,
 	).Scan(&a.CreatedAt)
 	if err != nil {
 		if key != nil {
 			_ = s.Objects.Delete(ctx, *key)
+		}
+		if thumbKey != nil {
+			_ = s.Objects.Delete(ctx, *thumbKey)
 		}
 		return Attachment{}, nil, fmt.Errorf("insert attachment: %w", err)
 	}
@@ -177,17 +191,36 @@ func (s *Service) Upload(ctx context.Context, accountID uuid.UUID, u Upload) (At
 func (s *Service) Get(ctx context.Context, accountID, id uuid.UUID) (Attachment, *string, error) {
 	var a Attachment
 	var key *string
+	var thumb *string
 	err := s.Pool.QueryRow(ctx, `
 		SELECT id, project_id, session_id, message_id, COALESCE(agent_path,''), COALESCE(filename,''),
 		       COALESCE(mime,''), COALESCE(size_bytes,0), COALESCE(content_hash,''), binary_stored, derived_text,
-		       created_at, object_key
+		       created_at, object_key, thumbnail_object_key
 		FROM attachments WHERE id = $1 AND account_id = $2`, id, accountID,
 	).Scan(&a.ID, &a.ProjectID, &a.SessionID, &a.MessageID, &a.AgentPath, &a.Filename, &a.MIME, &a.SizeBytes,
-		&a.ContentHash, &a.BinaryStored, &a.DerivedText, &a.CreatedAt, &key)
+		&a.ContentHash, &a.BinaryStored, &a.DerivedText, &a.CreatedAt, &key, &thumb)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Attachment{}, nil, ErrNotFound
 	}
+	a.HasThumbnail = thumb != nil && *thumb != ""
 	return a, key, err
+}
+
+func (s *Service) ThumbnailURL(ctx context.Context, accountID, id uuid.UUID) (string, error) {
+	var key *string
+	err := s.Pool.QueryRow(ctx, `
+		SELECT thumbnail_object_key FROM attachments WHERE id = $1 AND account_id = $2`, id, accountID,
+	).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if key == nil || *key == "" {
+		return "", ErrNotStored
+	}
+	return s.Objects.PresignGet(ctx, *key, 15*time.Minute)
 }
 
 func (s *Service) DownloadURL(ctx context.Context, accountID, id uuid.UUID) (Attachment, string, error) {

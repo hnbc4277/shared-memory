@@ -2,7 +2,7 @@ import { useState } from "react";
 import { API_BASE, createClient } from "../api/client";
 
 export default function Login({ onKey }: { onKey: (key: string) => void }) {
-  const [mode, setMode] = useState<"key" | "register">("key");
+  const [mode, setMode] = useState<"key" | "login" | "register">("key");
   const [key, setKey] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,7 +17,24 @@ export default function Login({ onKey }: { onKey: (key: string) => void }) {
       await createClient(API_BASE, () => k).get("/v1/me");
       onKey(k);
     } catch (e) {
-      setError(`API Key 无效：${(e as Error).message}`);
+      setError(`凭证无效：${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function login() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await createClient(API_BASE, () => null).post<{ token: string }>(
+        "/v1/auth/login",
+        { email, password },
+      );
+      await createClient(API_BASE, () => res.token).get("/v1/me");
+      onKey(res.token);
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -47,8 +64,9 @@ export default function Login({ onKey }: { onKey: (key: string) => void }) {
           </div>
         </div>
         <div className="segmented">
-          <button className={mode === "key" ? "active" : ""} onClick={() => setMode("key")}>使用 API Key</button>
-          <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>注册账号</button>
+          <button className={mode === "key" ? "active" : ""} onClick={() => setMode("key")}>API Key</button>
+          <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>邮箱登录</button>
+          <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>注册</button>
         </div>
 
         {mode === "key" && (
@@ -58,6 +76,20 @@ export default function Login({ onKey }: { onKey: (key: string) => void }) {
               <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="sm_..." autoFocus />
             </label>
             <button className="primary" disabled={busy || !key.trim()}>进入</button>
+          </form>
+        )}
+
+        {mode === "login" && (
+          <form onSubmit={(e) => { e.preventDefault(); void login(); }}>
+            <label className="field">
+              <span>邮箱</span>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+            </label>
+            <label className="field">
+              <span>密码</span>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
+            </label>
+            <button className="primary" disabled={busy}>登录</button>
           </form>
         )}
 
@@ -77,7 +109,7 @@ export default function Login({ onKey }: { onKey: (key: string) => void }) {
 
         {issued && (
           <div className="issued">
-            <p>账号已创建。下面的 API Key <strong>只显示这一次</strong>，请复制保存，并配置到各个智能体中。</p>
+            <p>账号已创建。下面的 API Key <strong>只显示这一次</strong>，请复制保存，并配置到各个智能体中。也可用邮箱密码登录控制台。</p>
             <code className="secret">{issued}</code>
             <div className="row">
               <button onClick={() => void navigator.clipboard.writeText(issued)}>复制</button>
@@ -86,7 +118,7 @@ export default function Login({ onKey }: { onKey: (key: string) => void }) {
           </div>
         )}
         {error && <div className="error-line">{error}</div>}
-        <p className="muted small">设备码登录与本地守护进程将在 M3 提供。</p>
+        <p className="muted small">设备码登录用于本地守护进程与 CLI（smctl login）。</p>
       </div>
     </div>
   );

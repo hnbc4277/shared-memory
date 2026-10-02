@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -19,13 +20,16 @@ import (
 	"sharedmemory/internal/config"
 	"sharedmemory/internal/db"
 	"sharedmemory/internal/device"
+	"sharedmemory/internal/entity"
 	"sharedmemory/internal/httpapi"
 	"sharedmemory/internal/index"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/objectstore"
 	"sharedmemory/internal/policy"
 	"sharedmemory/internal/project"
+	"sharedmemory/internal/quarantine"
 	"sharedmemory/internal/queue"
+	"sharedmemory/internal/ratelimit"
 	"sharedmemory/internal/recall"
 	"sharedmemory/internal/reindex"
 	"sharedmemory/internal/semantic"
@@ -113,6 +117,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	policies := policy.NewStore(pool)
 	vaults := vault.NewStore(pool, cipher)
 	artifacts := artifact.NewStore(pool, objects)
+	entities := &entity.Store{Pool: pool}
 	a.Deps = httpapi.Deps{
 		Pool:     pool,
 		Auth:     authStore,
@@ -129,10 +134,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Deleter:     &account.Deleter{Pool: pool, Objects: objects, Index: a.Index},
 		Index:       a.Index,
 		Devices:     device.NewStore(pool, authStore),
+		Quarantine:  &quarantine.Store{Pool: pool},
+		Entities:    entities,
+		RateLimit:   &ratelimit.Limiter{Redis: a.Redis, Limit: 120, Window: time.Minute},
 		CORSOrigins: cfg.CORSOrigins,
 	}
 	a.Worker = &worker.Handler{Pool: pool, Objects: objects, Memories: a.Memories,
-		Deriver: semantic.Heuristic{}, Extractor: worker.NewExtractor(cfg.OCRLangs)}
+		Deriver: semantic.Heuristic{}, Extractor: worker.NewExtractor(cfg.OCRLangs), Entities: entities}
 	a.Reindexer = &reindex.Reindexer{Pool: pool, Index: a.Index, Memories: a.Memories, Artifacts: artifacts,
 		Collection: collection}
 	return a, nil

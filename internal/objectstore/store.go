@@ -49,6 +49,10 @@ func AttachmentKey(accountID uuid.UUID, projectID *uuid.UUID, attachmentID uuid.
 	return fmt.Sprintf("%s/%s/attachments/%s/%s", accountID, scopeSegment(projectID), attachmentID, filename)
 }
 
+func ThumbnailKey(accountID uuid.UUID, projectID *uuid.UUID, attachmentID uuid.UUID) string {
+	return fmt.Sprintf("%s/%s/attachments/%s/thumb.jpg", accountID, scopeSegment(projectID), attachmentID)
+}
+
 func ArtifactCandidateKey(accountID uuid.UUID, projectID *uuid.UUID, candidateID uuid.UUID) string {
 	return fmt.Sprintf("%s/%s/artifact-candidates/%s.md", accountID, scopeSegment(projectID), candidateID)
 }

@@ -140,7 +140,7 @@ func (r *Router) handleRevealVault(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusUnauthorized, "password verification failed")
 		return
 	}
-	secret, err := r.Vault.Reveal(req.Context(), accountOf(req), id)
+	secret, err := r.Vault.RevealWithPassword(req.Context(), accountOf(req), id, body.Password)
 	if err != nil {
 		fail(w, err)
 		return

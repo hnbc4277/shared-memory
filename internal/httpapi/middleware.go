@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"sharedmemory/internal/auth"
+	"sharedmemory/internal/ratelimit"
 )
 
 type ctxKey int
@@ -44,16 +45,45 @@ func BearerAuth(store *auth.Store) func(http.Handler) http.Handler {
 				return
 			}
 			token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-			accountID, deviceID, err := store.AuthenticateAPIKeyFull(r.Context(), token)
+			ctx := r.Context()
+			if strings.HasPrefix(token, "wss_") {
+				accountID, err := store.AuthenticateWebSession(ctx, token)
+				if err != nil {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(withAccountID(ctx, accountID)))
+				return
+			}
+			accountID, deviceID, err := store.AuthenticateAPIKeyFull(ctx, token)
 			if err != nil {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-			ctx := withAccountID(r.Context(), accountID)
+			authCtx := withAccountID(ctx, accountID)
 			if deviceID != nil {
-				ctx = withDeviceID(ctx, *deviceID)
+				authCtx = withDeviceID(authCtx, *deviceID)
 			}
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(authCtx))
+		})
+	}
+}
+
+// RateLimit rejects when the account exceeds Limit for the named route.
+func RateLimit(limiter *ratelimit.Limiter, route string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			accountID, ok := AccountIDFromContext(r.Context())
+			if !ok || limiter == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			okAllow, err := limiter.Allow(r.Context(), accountID, route)
+			if err != nil || okAllow {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		})
 	}
 }

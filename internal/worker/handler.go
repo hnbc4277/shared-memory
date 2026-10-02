@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"sharedmemory/internal/attachment"
+	"sharedmemory/internal/entity"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/objectstore"
 	"sharedmemory/internal/queue"
@@ -48,6 +49,7 @@ type Handler struct {
 	Memories  *memory.Store
 	Deriver   semantic.Deriver
 	Extractor Extractor
+	Entities  *entity.Store
 }
 
 func (h *Handler) Handle(ctx context.Context, job queue.Job) error {
@@ -120,12 +122,17 @@ func (h *Handler) handleMessage(ctx context.Context, job queue.Job) error {
 	for _, e := range extracted {
 		m := memory.Memory{ProjectID: job.ProjectID, Scope: e.Scope, Kind: e.Kind, Body: e.Body,
 			SourceSessionID: &sessionID, SourceAgentPath: job.AgentPath}
-		_, created, err := h.Memories.Add(ctx, job.AccountID, m)
+		saved, created, err := h.Memories.Add(ctx, job.AccountID, m)
 		if err != nil {
 			return fmt.Errorf("add %s: %w", e.Kind, err)
 		}
 		if created && e.Kind == semantic.KindPreference {
 			profileDirty = true
+		}
+		if created && e.Kind == semantic.KindEntity && h.Entities != nil {
+			if err := h.Entities.RecordFromBody(ctx, job.AccountID, job.ProjectID, saved.ID, e.Body); err != nil {
+				return fmt.Errorf("entity alias: %w", err)
+			}
 		}
 	}
 	if profileDirty {

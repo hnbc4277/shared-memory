@@ -16,10 +16,13 @@ import (
 	"sharedmemory/internal/audit"
 	"sharedmemory/internal/auth"
 	"sharedmemory/internal/device"
+	"sharedmemory/internal/entity"
 	"sharedmemory/internal/index"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/policy"
 	"sharedmemory/internal/project"
+	"sharedmemory/internal/quarantine"
+	"sharedmemory/internal/ratelimit"
 	"sharedmemory/internal/recall"
 	"sharedmemory/internal/session"
 	"sharedmemory/internal/vault"
@@ -40,6 +43,9 @@ type Deps struct {
 	Deleter     *account.Deleter
 	Index       *index.Service
 	Devices     *device.Store
+	Quarantine  *quarantine.Store
+	Entities    *entity.Store
+	RateLimit   *ratelimit.Limiter
 	CORSOrigins []string
 }
 
@@ -55,16 +61,22 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle(pattern, authed(h))
 	}
 
+	handleRL := func(pattern, route string, h http.HandlerFunc) {
+		mux.Handle(pattern, authed(RateLimit(d.RateLimit, route)(h)))
+	}
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("POST /v1/auth/register", r.handleRegister)
+	mux.HandleFunc("POST /v1/auth/login", r.handleLogin)
 	mux.HandleFunc("POST /v1/device/code", r.handleDeviceCode)
 	mux.HandleFunc("POST /v1/device/token", r.handleDeviceToken)
 	mux.HandleFunc("GET /v1/ws", r.handleWS)
 
 	handle("GET /v1/me", r.handleMe)
+	handle("POST /v1/auth/logout", r.handleLogout)
 	handle("POST /v1/auth/api-keys", r.handleCreateAPIKey)
 	handle("GET /v1/auth/api-keys", r.handleListAPIKeys)
 	handle("DELETE /v1/auth/api-keys/{id}", r.handleRevokeAPIKey)
@@ -81,13 +93,16 @@ func NewRouter(d Deps) http.Handler {
 	handle("GET /v1/audit", r.handleListAudit)
 	handle("DELETE /v1/account", r.handleDeleteAccount)
 
-	handle("POST /v1/ingest", r.handleIngest)
+	handleRL("POST /v1/ingest", "ingest", r.handleIngest)
 	handle("GET /v1/sessions", r.handleListSessions)
 	handle("GET /v1/sessions/{id}", r.handleGetSession)
 	handle("POST /v1/attachments", r.handleUploadAttachment)
 	handle("GET /v1/attachments/{id}", r.handleGetAttachment)
+	handle("GET /v1/attachments/{id}/thumbnail", r.handleGetAttachmentThumb)
+	handle("GET /v1/quarantine", r.handleListQuarantine)
+	handle("GET /v1/entities", r.handleListEntities)
 
-	handle("POST /v1/recall", r.handleRecall)
+	handleRL("POST /v1/recall", "recall", r.handleRecall)
 	handle("GET /v1/memories", r.handleListMemories)
 	handle("PUT /v1/memories/{id}", r.handleSupersedeMemory)
 	handle("DELETE /v1/memories/{id}", r.handleInvalidateMemory)

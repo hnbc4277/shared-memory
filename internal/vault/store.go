@@ -52,6 +52,7 @@ type ItemInput struct {
 	SiteURL   string     `json:"site_url"`
 	Username  string     `json:"username"`
 	Secret    string     `json:"secret"`
+	Password  string     `json:"password"`
 }
 
 type Source struct {
@@ -119,6 +120,7 @@ type AcceptOverrides struct {
 	Title    string `json:"title"`
 	SiteURL  string `json:"site_url"`
 	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 // Accept moves a candidate into the vault after explicit user consent.
@@ -146,6 +148,20 @@ func (s *Store) Accept(ctx context.Context, accountID, candidateID uuid.UUID, o 
 		return Item{}, err
 	}
 	title, site, user = pick(o.Title, title), pick(o.SiteURL, site), pick(o.Username, user)
+	if pw := strings.TrimSpace(o.Password); pw != "" {
+		plain, err := s.cipher.Decrypt(accountID, ct, nonce)
+		if err != nil {
+			return Item{}, err
+		}
+		dek, err := s.EnsurePasswordDEK(ctx, accountID, pw)
+		if err != nil {
+			return Item{}, err
+		}
+		ct, nonce, err = s.cipher.EncryptWithDEK(accountID, dek, plain)
+		if err != nil {
+			return Item{}, err
+		}
+	}
 	it := Item{ID: uuid.New(), ProjectID: projectID, Title: title, SiteURL: site, Username: user,
 		SourceSessionID: sessionID, SourceAgentPath: agentPath, ConsentMethod: ConsentPrompt}
 	err = tx.QueryRow(ctx, `
@@ -180,7 +196,19 @@ func (s *Store) Create(ctx context.Context, accountID uuid.UUID, in ItemInput) (
 	if strings.TrimSpace(in.Secret) == "" {
 		return Item{}, fmt.Errorf("secret is required")
 	}
-	ct, nonce, err := s.cipher.Encrypt(accountID, in.Secret)
+	var (
+		ct, nonce []byte
+		err       error
+	)
+	if pw := strings.TrimSpace(in.Password); pw != "" {
+		dek, e := s.EnsurePasswordDEK(ctx, accountID, pw)
+		if e != nil {
+			return Item{}, e
+		}
+		ct, nonce, err = s.cipher.EncryptWithDEK(accountID, dek, in.Secret)
+	} else {
+		ct, nonce, err = s.cipher.Encrypt(accountID, in.Secret)
+	}
 	if err != nil {
 		return Item{}, err
 	}
@@ -220,6 +248,10 @@ func (s *Store) List(ctx context.Context, accountID uuid.UUID) ([]Item, error) {
 }
 
 func (s *Store) Reveal(ctx context.Context, accountID, itemID uuid.UUID) (string, error) {
+	return s.RevealWithPassword(ctx, accountID, itemID, "")
+}
+
+func (s *Store) RevealWithPassword(ctx context.Context, accountID, itemID uuid.UUID, password string) (string, error) {
 	var ct, nonce []byte
 	err := s.pool.QueryRow(ctx,
 		`SELECT secret_cipher, secret_nonce FROM vault_items WHERE id = $1 AND account_id = $2`,
@@ -231,7 +263,58 @@ func (s *Store) Reveal(ctx context.Context, accountID, itemID uuid.UUID) (string
 	if err != nil {
 		return "", err
 	}
-	return s.cipher.Decrypt(accountID, ct, nonce)
+	var dek []byte
+	if strings.TrimSpace(password) != "" {
+		dek, err = s.UnlockDEK(ctx, accountID, password)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			// Password wrap may be absent for legacy rows; fall back to master key.
+			dek = nil
+		}
+	}
+	return s.cipher.DecryptWithDEK(accountID, dek, ct, nonce)
+}
+
+// EnsurePasswordDEK installs a password-wrapped DEK if missing, or unlocks the existing one.
+func (s *Store) EnsurePasswordDEK(ctx context.Context, accountID uuid.UUID, password string) ([]byte, error) {
+	password = strings.TrimSpace(password)
+	if password == "" {
+		return nil, fmt.Errorf("password is required")
+	}
+	var salt, wrapped, nonce []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT vault_salt, vault_wrapped_dek, vault_wrap_nonce FROM accounts WHERE id = $1`, accountID,
+	).Scan(&salt, &wrapped, &nonce)
+	if err != nil {
+		return nil, err
+	}
+	if len(wrapped) > 0 {
+		return UnwrapDEK(password, salt, wrapped, nonce)
+	}
+	salt, wrapped, nonce, dek, err := NewWrappedDEK(password)
+	if err != nil {
+		return nil, err
+	}
+	_, err = s.pool.Exec(ctx, `
+		UPDATE accounts SET vault_salt = $2, vault_wrapped_dek = $3, vault_wrap_nonce = $4 WHERE id = $1`,
+		accountID, salt, wrapped, nonce)
+	if err != nil {
+		return nil, err
+	}
+	return dek, nil
+}
+
+func (s *Store) UnlockDEK(ctx context.Context, accountID uuid.UUID, password string) ([]byte, error) {
+	var salt, wrapped, nonce []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT vault_salt, vault_wrapped_dek, vault_wrap_nonce FROM accounts WHERE id = $1`, accountID,
+	).Scan(&salt, &wrapped, &nonce)
+	if err != nil {
+		return nil, err
+	}
+	if len(wrapped) == 0 {
+		return nil, ErrNotFound
+	}
+	return UnwrapDEK(password, salt, wrapped, nonce)
 }
 
 func (s *Store) Update(ctx context.Context, accountID, itemID uuid.UUID, in ItemInput) error {

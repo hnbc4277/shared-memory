@@ -18,13 +18,24 @@ type IngestMessageRequest struct {
 	AgentPath           string    `json:"agent_path"`
 	Skills              *[]string `json:"skills"`
 	Plugins             *[]string `json:"plugins"`
-	Tools               *[]string `json:"tools"`
-	Model               string    `json:"model"`
-	Role                string    `json:"role"`
-	Content             string    `json:"content"`
-	AttachmentIDs       []string  `json:"attachment_ids"`
-	StoreTranscriptMark bool      `json:"store_transcript_mark"`
-	ArtifactOffer       bool      `json:"artifact_offer"`
+	Tools               *[]string  `json:"tools"`
+	ToolCalls           []ToolCall `json:"tool_calls"`
+	Model               string     `json:"model"`
+	Role                string     `json:"role"`
+	Content             string     `json:"content"`
+	AttachmentIDs       []string   `json:"attachment_ids"`
+	StoreTranscriptMark bool       `json:"store_transcript_mark"`
+	ArtifactOffer       bool       `json:"artifact_offer"`
+}
+
+// ToolCall records one plugin/tool invocation with timing and truncated output.
+type ToolCall struct {
+	Kind           string `json:"kind"` // plugin | tool
+	Name           string `json:"name"`
+	StartedAt      string `json:"started_at"` // RFC3339
+	EndedAt        string `json:"ended_at"`
+	Output         string `json:"output"`
+	OutputTruncated bool  `json:"-"`
 }
 
 type Prompt struct {
