@@ -62,16 +62,23 @@ func InstallCursor(smhookPath, mcpPath string) error {
 		return err
 	}
 	rule := `---
-description: Shared Memory recall
+description: Shared Memory — always recall before reinventing context
 globs:
 alwaysApply: true
 ---
 
-# Shared Memory
+# Shared Memory（强制召回）
 
-At the start of a task, call the MCP tool ` + "`memory_recall`" + ` with a short query about the user's goal.
-Prefer recalled profile and project memories before asking the user to restate known facts.
-Do not print API keys or credentials.
+Cursor 无法可靠地把 hook 返回的 additional_context 注入模型，因此你必须主动调用 MCP：
+
+1. **每个非琐碎任务开始时**，先调用 ` + "`memory_recall`" + `：
+   - query：用当前用户目标的一句话摘要（中文或英文均可）
+   - 若用户提到了具体项目，带上对应 project_id（如果已知）
+2. 把返回的 ` + "`context`" + `（画像、项目摘要、相关事实）当作已知背景；**不要**让用户重复已经记住的偏好、决策与项目事实。
+3. 重要结论、用户明确偏好、项目决策，在回复后可通过 ` + "`memory_ingest`" + ` 写入（role=assistant 或 user），并填齐 skills/plugins/tools（没有则传 []）。
+4. 子智能体任务：agent_path 使用 ` + "`cursor/<subagent_type>`" + `。
+5. 绝不要在对话或工具参数里打印 API Key、口令或 vault 明文。
+6. 若 memory_recall 失败或超时，正常继续任务，不要卡死。
 `
 	return os.WriteFile(filepath.Join(rulesDir, "shared-memory.mdc"), []byte(rule), 0o644)
 }

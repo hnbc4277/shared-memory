@@ -68,17 +68,30 @@ func (e *APIError) Error() string {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
+	raw, err := c.CallRaw(ctx, method, path, body)
+	if err != nil {
+		return err
+	}
+	if out == nil || len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	return json.Unmarshal(raw, out)
+}
+
+// CallRaw performs an authenticated request and returns the response body.
+// Empty bodies become {"ok":true} so MCP and adapters can treat them uniformly.
+func (c *Client) CallRaw(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
 	var rdr io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		rdr = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
@@ -88,20 +101,20 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if resp.StatusCode >= 300 {
-		return &APIError{Status: resp.StatusCode, Body: string(raw)}
+		return nil, &APIError{Status: resp.StatusCode, Body: string(raw)}
 	}
-	if out == nil || resp.StatusCode == http.StatusNoContent || len(raw) == 0 {
-		return nil
+	if len(raw) == 0 {
+		raw = []byte(`{"ok":true}`)
 	}
-	return json.Unmarshal(raw, out)
+	return raw, nil
 }
 
 // Ingest records one chat message.

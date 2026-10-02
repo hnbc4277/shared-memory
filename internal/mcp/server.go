@@ -1,6 +1,6 @@
 // Package mcp implements a minimal Model Context Protocol server over stdio
-// (newline-delimited JSON-RPC 2.0) that proxies tools to the REST API, so any
-// MCP-capable agent can share memory without a dedicated adapter.
+// (newline-delimited JSON-RPC 2.0) that proxies tools to the REST API via the
+// shared Go SDK, so any MCP-capable agent can share memory without a dedicated adapter.
 package mcp
 
 import (
@@ -14,56 +14,17 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
+
+	"sharedmemory/sdk/go/sm"
 )
 
 const ProtocolVersion = "2024-11-05"
 
-type Client struct {
-	BaseURL string
-	APIKey  string
-	HTTP    *http.Client
-}
-
-func (c *Client) call(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
-	var rdr io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		rdr = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.BaseURL, "/")+path, rdr)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-	hc := c.HTTP
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	out, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("api %s %s: %d %s", method, path, resp.StatusCode, strings.TrimSpace(string(out)))
-	}
-	if len(out) == 0 {
-		out = []byte(`{"ok":true}`)
-	}
-	return out, nil
-}
+// Client is retained as a thin alias so existing call sites keep compiling.
+type Client = sm.Client
 
 type Server struct {
-	Client *Client
+	Client *sm.Client
 	// DefaultAgent fills `agent` for memory_ingest when the caller omits it.
 	DefaultAgent string
 	Version      string
@@ -171,9 +132,9 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 		if str("agent") == "" && s.DefaultAgent != "" {
 			args["agent"] = s.DefaultAgent
 		}
-		out, err = s.Client.call(ctx, http.MethodPost, "/v1/ingest", args)
+		out, err = s.Client.CallRaw(ctx, http.MethodPost, "/v1/ingest", args)
 	case "memory_recall":
-		out, err = s.Client.call(ctx, http.MethodPost, "/v1/recall", args)
+		out, err = s.Client.CallRaw(ctx, http.MethodPost, "/v1/recall", args)
 	case "memory_list_sessions":
 		q := url.Values{}
 		for _, k := range []string{"project_id", "agent", "agent_path", "from", "to"} {
@@ -184,15 +145,19 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 		if v, ok := args["limit"].(float64); ok {
 			q.Set("limit", fmt.Sprint(int(v)))
 		}
-		out, err = s.Client.call(ctx, http.MethodGet, "/v1/sessions?"+q.Encode(), nil)
+		path := "/v1/sessions"
+		if enc := q.Encode(); enc != "" {
+			path += "?" + enc
+		}
+		out, err = s.Client.CallRaw(ctx, http.MethodGet, path, nil)
 	case "memory_get_session":
 		id := str("session_id")
 		if id == "" {
 			return "", fmt.Errorf("session_id is required")
 		}
-		out, err = s.Client.call(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(id), nil)
+		out, err = s.Client.CallRaw(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(id), nil)
 	case "memory_list_candidates":
-		out, err = s.Client.call(ctx, http.MethodGet, "/v1/candidates", nil)
+		out, err = s.Client.CallRaw(ctx, http.MethodGet, "/v1/candidates", nil)
 	case "memory_resolve_candidate":
 		kind, id, decision := str("kind"), str("candidate_id"), str("decision")
 		if (kind != "vault" && kind != "artifact") || id == "" || (decision != "accept" && decision != "reject") {
@@ -202,7 +167,7 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 		if kind == "artifact" {
 			prefix = "/v1/artifacts/candidates/"
 		}
-		out, err = s.Client.call(ctx, http.MethodPost, prefix+url.PathEscape(id)+"/"+decision, map[string]any{})
+		out, err = s.Client.CallRaw(ctx, http.MethodPost, prefix+url.PathEscape(id)+"/"+decision, map[string]any{})
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
@@ -219,7 +184,8 @@ var toolDefs = []map[string]any{
 		"name": "memory_ingest",
 		"description": "Record one chat message in shared memory with mandatory provenance. Send skills/plugins/tools as [] " +
 			"when none were used. For sub-agents set agent_path like 'xiaolongxia/researcher'. Omit session_id for the " +
-			"first message, then reuse the returned session_id. If the response contains prompts, ask the user.",
+			"first message, then reuse the returned session_id. Prefer external_session_id for hook/daemon clients. " +
+			"If the response contains prompts, ask the user.",
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -237,7 +203,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "memory_recall",
-		"description": "Retrieve the user's shared memory (profile, project summary, relevant memories) for a query. Use the returned 'context' as background.",
+		"description": "Retrieve the user's shared memory (profile, project summary, relevant memories) for a query. Use the returned 'context' as background. Call this at the start of every non-trivial task.",
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{

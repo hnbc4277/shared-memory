@@ -6,6 +6,11 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"log"
 	"os/exec"
@@ -38,8 +43,8 @@ func execRun(ctx context.Context, name string, args []string, stdin []byte) ([]b
 }
 
 // DocExtractor turns attachments into searchable text: text as-is, docx in
-// pure Go, PDF via pdftotext and images via tesseract OCR. A missing tool
-// disables that format instead of failing the job.
+// pure Go, PDF via pdftotext, and images via a visual description plus optional
+// tesseract OCR. A missing tool disables that format instead of failing the job.
 type DocExtractor struct {
 	OCRLangs string
 	run      runFunc
@@ -62,28 +67,62 @@ func (e *DocExtractor) Extract(ctx context.Context, mimeType string, data []byte
 	case mimeType == "application/pdf":
 		return e.tool(ctx, "pdftotext", []string{"-q", "-layout", "-", "-"}, data)
 	case strings.HasPrefix(mimeType, "image/"):
-		if e.OCRLangs == "" {
-			return "", nil
-		}
-		return e.tool(ctx, "tesseract", []string{"stdin", "stdout", "-l", e.OCRLangs}, data)
+		return e.imageDerived(ctx, mimeType, data)
 	}
 	return "", nil
 }
 
-func (e *DocExtractor) tool(ctx context.Context, name string, args []string, data []byte) (string, error) {
+// imageDerived builds a visual description (format + dimensions) and appends OCR
+// text when languages are configured. This is the local substitute for a vision
+// model: searchable without leaving the project compose stack.
+func (e *DocExtractor) imageDerived(ctx context.Context, mimeType string, data []byte) (string, error) {
+	desc := describeImage(mimeType, data)
+	var ocr string
+	if e.OCRLangs != "" {
+		text, err := e.tool(ctx, "tesseract", []string{"stdin", "stdout", "-l", e.OCRLangs}, data)
+		if err != nil {
+			return desc, err
+		}
+		ocr = strings.TrimSpace(text)
+	}
+	switch {
+	case desc != "" && ocr != "":
+		return desc + "\nOCR：" + ocr, nil
+	case desc != "":
+		return desc, nil
+	default:
+		return ocr, nil
+	}
+}
+
+func describeImage(mimeType string, data []byte) string {
+	format := strings.TrimPrefix(mimeType, "image/")
+	if format == "" {
+		format = "unknown"
+	}
+	cfg, name, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Sprintf("图片附件：%s，约 %d 字节（无法解析像素尺寸）", format, len(data))
+	}
+	if name != "" {
+		format = name
+	}
+	return fmt.Sprintf("图片附件：%s，%d×%d 像素，约 %d 字节", format, cfg.Width, cfg.Height, len(data))
+}
+
+func (e *DocExtractor) tool(ctx context.Context, name string, args []string, stdin []byte) (string, error) {
 	if _, gone := e.missing.Load(name); gone {
 		return "", nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, extractTimeout)
 	defer cancel()
-	out, err := e.run(ctx, name, args, data)
+	out, err := e.run(ctx, name, args, stdin)
 	if errors.Is(err, exec.ErrNotFound) {
 		e.missing.Store(name, true)
 		log.Printf("%s not installed; skipping that attachment type", name)
 		return "", nil
 	}
 	if err != nil {
-		// A corrupt or unsupported file is not worth retrying the job for.
 		log.Printf("%s: %v", name, err)
 		return "", nil
 	}

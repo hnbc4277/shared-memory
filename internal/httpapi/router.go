@@ -62,6 +62,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /v1/auth/register", r.handleRegister)
 	mux.HandleFunc("POST /v1/device/code", r.handleDeviceCode)
 	mux.HandleFunc("POST /v1/device/token", r.handleDeviceToken)
+	mux.HandleFunc("GET /v1/ws", r.handleWS)
 
 	handle("GET /v1/me", r.handleMe)
 	handle("POST /v1/auth/api-keys", r.handleCreateAPIKey)
