@@ -1,13 +1,15 @@
-// cmd/api/main.go
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"sharedmemory/internal/config"
+	"sharedmemory/internal/db"
+	"sharedmemory/internal/httpapi"
 )
 
 func main() {
@@ -19,11 +21,22 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-	fmt.Println("listening", cfg.HTTPAddr)
-	log.Fatal(http.ListenAndServe(cfg.HTTPAddr, mux))
+	ctx := context.Background()
+	pool, err := db.Connect(ctx, cfg.PostgresDSN)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pool.Close()
+
+	migrations := "migrations"
+	if _, err := os.Stat(migrations); err != nil {
+		migrations = filepath.Join("..", "..", "migrations")
+	}
+	if err := db.Migrate(ctx, pool, migrations); err != nil {
+		log.Fatal(err)
+	}
+
+	handler := httpapi.NewRouter(pool)
+	log.Println("listening", cfg.HTTPAddr)
+	log.Fatal(http.ListenAndServe(cfg.HTTPAddr, handler))
 }
