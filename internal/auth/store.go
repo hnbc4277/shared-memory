@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -91,6 +92,69 @@ func (s *Store) AuthenticateAPIKey(ctx context.Context, plaintextKey string) (uu
 		return uuid.Nil, fmt.Errorf("lookup api key: %w", err)
 	}
 	return accountID, nil
+}
+
+// VerifyPassword re-authenticates a user, e.g. to unlock vault secrets.
+func (s *Store) VerifyPassword(ctx context.Context, accountID uuid.UUID, password string) error {
+	var hash string
+	err := s.pool.QueryRow(ctx, `SELECT password_hash FROM accounts WHERE id = $1`, accountID).Scan(&hash)
+	if err != nil {
+		return ErrUnauthorized
+	}
+	if CheckPassword(hash, password) != nil {
+		return ErrUnauthorized
+	}
+	return nil
+}
+
+func (s *Store) Login(ctx context.Context, email, password string) (uuid.UUID, error) {
+	var id uuid.UUID
+	var hash string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, password_hash FROM accounts WHERE email = $1`,
+		strings.TrimSpace(strings.ToLower(email)),
+	).Scan(&id, &hash)
+	if err != nil || CheckPassword(hash, password) != nil {
+		return uuid.Nil, ErrUnauthorized
+	}
+	return id, nil
+}
+
+type APIKeyInfo struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (s *Store) ListAPIKeys(ctx context.Context, accountID uuid.UUID) ([]APIKeyInfo, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, COALESCE(name, ''), created_at FROM api_keys WHERE account_id = $1 ORDER BY created_at`,
+		accountID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []APIKeyInfo{}
+	for rows.Next() {
+		var k APIKeyInfo
+		if err := rows.Scan(&k.ID, &k.Name, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RevokeAPIKey(ctx context.Context, accountID, keyID uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM api_keys WHERE id = $1 AND account_id = $2`, keyID, accountID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUnauthorized
+	}
+	return nil
 }
 
 // Register creates an account and returns one plaintext API key (once).

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"sharedmemory/internal/auth"
 	"sharedmemory/internal/testutil"
 )
@@ -16,7 +18,7 @@ func TestAPIKey_RoundTrip(t *testing.T) {
 	pool := testutil.TestPool(t)
 	store := auth.NewStore(pool)
 
-	accountID, err := store.CreateAccount(ctx, "user-"+t.Name()+"@example.com", "password123")
+	accountID, err := store.CreateAccount(ctx, "user-"+uuid.NewString()+"@example.com", "password123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +42,7 @@ func TestAPIKey_RoundTrip(t *testing.T) {
 func TestRegister_ReturnsAPIKey(t *testing.T) {
 	ctx := context.Background()
 	store := auth.NewStore(testutil.TestPool(t))
-	id, key, err := store.Register(ctx, "reg-"+t.Name()+"@example.com", "password123")
+	id, key, err := store.Register(ctx, "reg-"+uuid.NewString()+"@example.com", "password123")
 	if err != nil {
 		t.Fatal(err)
 	}
