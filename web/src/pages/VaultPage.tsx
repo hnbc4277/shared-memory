@@ -94,7 +94,7 @@ export default function VaultPage() {
         )}
         <ErrorLine error={items.error} />
         {items.data?.length === 0 && <Empty>凭证库为空。</Empty>}
-        <table className="table">
+        {!!items.data?.length && <table className="table">
           <thead>
             <tr><th>名称</th><th>网址</th><th>账号</th><th>口令</th><th>来源</th><th>更新</th><th /></tr>
           </thead>
@@ -120,7 +120,7 @@ export default function VaultPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table>}
       </Section>
 
       {revealFor && (
