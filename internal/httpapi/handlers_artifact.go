@@ -11,15 +11,10 @@ import (
 
 	"sharedmemory/internal/artifact"
 	"sharedmemory/internal/audit"
-	"sharedmemory/internal/index"
-	"sharedmemory/internal/semantic"
 	"sharedmemory/internal/vault"
 )
 
-const indexedArtifactRunes = 4000
-
 // indexArtifact projects an artifact into search when the account allows it.
-// The indexed text is always redacted, even if the user kept a secret in the body.
 func (r *Router) indexArtifact(req *http.Request, d artifact.Detail) {
 	if r.Index == nil {
 		return
@@ -34,17 +29,8 @@ func (r *Router) indexArtifact(req *http.Request, d artifact.Detail) {
 	if !pol.ArtifactSearchable {
 		return
 	}
-	a := d.Artifact
-	scope := semantic.ScopeGlobal
-	if a.ProjectID != nil {
-		scope = semantic.ScopeProject
-	}
-	body := vault.Redact(a.Title + "\n" + a.Summary + "\n" + semantic.Truncate(d.Body, indexedArtifactRunes))
-	err = r.Index.IndexDoc(ctx, index.Doc{ID: a.ID, DocType: index.DocArtifact, AccountID: accountID,
-		ProjectID: a.ProjectID, Scope: scope, Kind: a.Type, Body: body, SourceSessionID: a.SourceSessionID,
-		SourceAgentPath: a.SourceAgentPath, CreatedAt: a.CreatedAt})
-	if err != nil {
-		log.Printf("artifact index %s: %v", a.ID, err)
+	if err := r.Index.IndexDoc(ctx, artifact.SearchDoc(accountID, d)); err != nil {
+		log.Printf("artifact index %s: %v", d.Artifact.ID, err)
 	}
 }
 
@@ -109,11 +95,35 @@ type createArtifactReq struct {
 	artifact.Input
 	FromMessageID     string `json:"from_message_id"`
 	AcknowledgeSecret bool   `json:"acknowledge_secret"`
+	// MoveSecretsToVault saves detected credentials as vault items and keeps
+	// only the redacted body in the artifact.
+	MoveSecretsToVault bool `json:"move_secrets_to_vault"`
+}
+
+type artifactRes struct {
+	artifact.Detail
+	MovedToVault int `json:"moved_to_vault,omitempty"`
 }
 
 func secretConflict(w http.ResponseWriter) {
 	writeError(w, http.StatusConflict,
-		"content looks like it contains a password/token; store credentials in the vault, or resend with acknowledge_secret=true")
+		"content looks like it contains a password/token; resend with move_secrets_to_vault=true to keep it in the vault, or acknowledge_secret=true to keep it in the artifact")
+}
+
+// moveSecretsToVault stores every credential found in body as a vault item
+// (the user asked for exactly this) and returns the redacted body.
+func (r *Router) moveSecretsToVault(req *http.Request, projectID *uuid.UUID, body string) (string, int, error) {
+	n := 0
+	for _, d := range vault.Detect(body) {
+		it, err := r.Vault.Create(req.Context(), accountOf(req), vault.ItemInput{
+			ProjectID: projectID, Title: d.Title, SiteURL: d.SiteURL, Username: d.Username, Secret: d.Secret})
+		if err != nil {
+			return "", n, err
+		}
+		r.audit(req, audit.VaultCreate, map[string]any{"item_id": it.ID, "title": it.Title, "from": "artifact"})
+		n++
+	}
+	return vault.Redact(body), n, nil
 }
 
 func (r *Router) handleCreateArtifact(w http.ResponseWriter, req *http.Request) {
@@ -153,7 +163,15 @@ func (r *Router) handleCreateArtifact(w http.ResponseWriter, req *http.Request) 
 			return
 		}
 	}
-	if !body.AcknowledgeSecret && vault.ContainsSecret(body.Body) {
+	moved := 0
+	if body.MoveSecretsToVault {
+		redacted, n, err := r.moveSecretsToVault(req, body.ProjectID, body.Body)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		body.Body, moved = redacted, n
+	} else if !body.AcknowledgeSecret && vault.ContainsSecret(body.Body) {
 		secretConflict(w)
 		return
 	}
@@ -164,8 +182,9 @@ func (r *Router) handleCreateArtifact(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	r.indexArtifact(req, d)
-	r.audit(req, audit.ArtifactCreate, map[string]any{"artifact_id": d.Artifact.ID, "from_message_id": body.FromMessageID})
-	writeJSON(w, http.StatusCreated, d)
+	r.audit(req, audit.ArtifactCreate, map[string]any{"artifact_id": d.Artifact.ID, "from_message_id": body.FromMessageID,
+		"moved_to_vault": moved})
+	writeJSON(w, http.StatusCreated, artifactRes{Detail: d, MovedToVault: moved})
 }
 
 func (r *Router) handleGetArtifact(w http.ResponseWriter, req *http.Request) {
@@ -199,7 +218,8 @@ func (r *Router) handleExportArtifact(w http.ResponseWriter, req *http.Request) 
 
 type updateArtifactReq struct {
 	artifact.Update
-	AcknowledgeSecret bool `json:"acknowledge_secret"`
+	AcknowledgeSecret  bool `json:"acknowledge_secret"`
+	MoveSecretsToVault bool `json:"move_secrets_to_vault"`
 }
 
 func (r *Router) handleUpdateArtifact(w http.ResponseWriter, req *http.Request) {
@@ -211,7 +231,20 @@ func (r *Router) handleUpdateArtifact(w http.ResponseWriter, req *http.Request) 
 	if !decode(w, req, &body) {
 		return
 	}
-	if body.Body != nil && !body.AcknowledgeSecret && vault.ContainsSecret(*body.Body) {
+	moved := 0
+	if body.Body != nil && body.MoveSecretsToVault {
+		cur, err := r.Artifacts.Get(req.Context(), accountOf(req), id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		redacted, n, err := r.moveSecretsToVault(req, cur.Artifact.ProjectID, *body.Body)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		body.Body, moved = &redacted, n
+	} else if body.Body != nil && !body.AcknowledgeSecret && vault.ContainsSecret(*body.Body) {
 		secretConflict(w)
 		return
 	}
@@ -221,7 +254,7 @@ func (r *Router) handleUpdateArtifact(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	r.indexArtifact(req, d)
-	writeJSON(w, http.StatusOK, d)
+	writeJSON(w, http.StatusOK, artifactRes{Detail: d, MovedToVault: moved})
 }
 
 func (r *Router) handleDeleteArtifact(w http.ResponseWriter, req *http.Request) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -10,11 +11,15 @@ import (
 
 	"sharedmemory/internal/app"
 	"sharedmemory/internal/config"
+	"sharedmemory/internal/reindex"
 	"sharedmemory/internal/retention"
 	"sharedmemory/internal/vault"
 )
 
 func main() {
+	forceReindex := flag.Bool("reindex", false, "rebuild the search projection from Postgres and exit")
+	flag.Parse()
+
 	path := ".env"
 	if v := os.Getenv("SHARED_MEMORY_ENV"); v != "" {
 		path = v
@@ -32,7 +37,16 @@ func main() {
 	}
 	defer a.Close()
 
-	go housekeep(ctx, vault.NewStore(a.Pool, nil), &retention.Purger{Pool: a.Pool, Objects: a.Objects})
+	if *forceReindex {
+		n, err := a.Reindexer.Run(ctx)
+		if err != nil {
+			log.Fatalf("reindex after %d docs: %v", n, err)
+		}
+		log.Printf("reindexed %d docs into %s", n, a.Reindexer.Collection)
+		return
+	}
+
+	go housekeep(ctx, vault.NewStore(a.Pool, nil), &retention.Purger{Pool: a.Pool, Objects: a.Objects}, a.Reindexer)
 
 	consumer, _ := os.Hostname()
 	if consumer == "" {
@@ -46,11 +60,13 @@ func main() {
 
 // housekeep hourly drops unanswered vault candidates (encrypted secrets the
 // user never consented to keep), expired artifact candidates, and evidence
-// older than each account's retention_days.
-func housekeep(ctx context.Context, s *vault.Store, p *retention.Purger) {
+// older than each account's retention_days. It also backfills a vector
+// collection that has never been fully indexed (e.g. after switching embedder).
+func housekeep(ctx context.Context, s *vault.Store, p *retention.Purger, r *reindex.Reindexer) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
+		backfill(ctx, r)
 		if err := s.PurgeExpired(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("purge vault candidates: %v", err)
 		}
@@ -67,4 +83,22 @@ func housekeep(ctx context.Context, s *vault.Store, p *retention.Purger) {
 		case <-t.C:
 		}
 	}
+}
+
+func backfill(ctx context.Context, r *reindex.Reindexer) {
+	needed, err := r.Needed(ctx)
+	if err != nil || !needed {
+		if err != nil && ctx.Err() == nil {
+			log.Printf("index state: %v", err)
+		}
+		return
+	}
+	n, err := r.Run(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			log.Printf("backfill %s stopped after %d docs, retrying next hour: %v", r.Collection, n, err)
+		}
+		return
+	}
+	log.Printf("backfilled %d docs into %s", n, r.Collection)
 }

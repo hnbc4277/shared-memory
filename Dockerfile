@@ -12,7 +12,11 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
  && go build -trimpath -ldflags="-s -w" -o /out/mcp ./cmd/mcp
 
 FROM alpine:3.20
-RUN adduser -D -u 10001 app
+ARG APK_MIRROR=mirrors.aliyun.com
+# tesseract (image OCR) and poppler (pdftotext) back attachment text extraction.
+RUN sed -i "s/dl-cdn.alpinelinux.org/${APK_MIRROR}/g" /etc/apk/repositories \
+ && apk add --no-cache tesseract-ocr tesseract-ocr-data-chi_sim tesseract-ocr-data-eng poppler-utils \
+ && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=build /out/ /usr/local/bin/
 COPY migrations ./migrations

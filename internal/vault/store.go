@@ -260,6 +260,18 @@ func (s *Store) Update(ctx context.Context, accountID, itemID uuid.UUID, in Item
 	return nil
 }
 
+func (s *Store) Exists(ctx context.Context, accountID, itemID uuid.UUID) error {
+	var ok bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM vault_items WHERE id = $1 AND account_id = $2)`,
+		itemID, accountID).Scan(&ok); err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) Delete(ctx context.Context, accountID, itemID uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM vault_items WHERE id = $1 AND account_id = $2`, itemID, accountID)
 	if err != nil {

@@ -66,7 +66,13 @@ func (s *Service) Search(ctx context.Context, q Query) ([]Hit, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			vec, err := s.Embedder.Embed(ctx, q.Text)
+			var vec []float32
+			var err error
+			if qe, ok := s.Embedder.(semantic.QueryEmbedder); ok {
+				vec, err = qe.EmbedQuery(ctx, q.Text)
+			} else {
+				vec, err = s.Embedder.Embed(ctx, q.Text)
+			}
 			if err != nil {
 				vecErr = err
 				return

@@ -10,7 +10,7 @@ import (
 
 var forbiddenHostPorts = []string{"5432", "6379", "9000", "9200", "6333"}
 
-var requiredHostPorts = []string{"15432", "16379", "19000", "19200", "16333"}
+var requiredHostPorts = []string{"15432", "16379", "19000", "19200", "16333", "18081"}
 
 func loadComposeDoc(t *testing.T) map[string]any {
 	t.Helper()

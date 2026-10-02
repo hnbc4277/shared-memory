@@ -20,6 +20,25 @@ const DefaultCollection = "sm_memories"
 // scores up to ~0.15, while genuinely related texts score ~0.3+.
 const DefaultMinScore = 0.25
 
+// DefaultModelMinScore is the cut-off for bge-small-zh-v1.5 (query
+// instruction + CLS pooling). Measured locally: related ~0.62, unrelated
+// Chinese ~0.17–0.33, cross-lingual related ~0.44.
+const DefaultModelMinScore = 0.5
+
+// CollectionFor names the collection for one embedding model so vectors from
+// different models never share a collection.
+func CollectionFor(model string, dim int) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(model) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return fmt.Sprintf("%s_%s_%d", DefaultCollection, b.String(), dim)
+}
+
 type Qdrant struct {
 	baseURL    string
 	collection string

@@ -149,3 +149,17 @@ func (r *Router) handleRevealVault(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]string{"secret": secret})
 }
+
+// handleCopiedVault records that a revealed secret was copied to the clipboard.
+func (r *Router) handleCopiedVault(w http.ResponseWriter, req *http.Request) {
+	id, ok := pathID(w, req)
+	if !ok {
+		return
+	}
+	if err := r.Vault.Exists(req.Context(), accountOf(req), id); err != nil {
+		fail(w, err)
+		return
+	}
+	r.audit(req, audit.VaultCopy, map[string]any{"item_id": id})
+	w.WriteHeader(http.StatusNoContent)
+}

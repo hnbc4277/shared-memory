@@ -15,6 +15,7 @@ const (
 	VaultReject     = "vault.reject"
 	VaultCreate     = "vault.create"
 	VaultReveal     = "vault.reveal"
+	VaultCopy       = "vault.copy"
 	VaultUpdate     = "vault.update"
 	VaultDelete     = "vault.delete"
 	ArtifactAccept  = "artifact.accept"

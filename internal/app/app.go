@@ -18,6 +18,7 @@ import (
 	"sharedmemory/internal/auth"
 	"sharedmemory/internal/config"
 	"sharedmemory/internal/db"
+	"sharedmemory/internal/device"
 	"sharedmemory/internal/httpapi"
 	"sharedmemory/internal/index"
 	"sharedmemory/internal/memory"
@@ -26,6 +27,7 @@ import (
 	"sharedmemory/internal/project"
 	"sharedmemory/internal/queue"
 	"sharedmemory/internal/recall"
+	"sharedmemory/internal/reindex"
 	"sharedmemory/internal/semantic"
 	"sharedmemory/internal/session"
 	"sharedmemory/internal/vault"
@@ -34,15 +36,16 @@ import (
 
 // App holds every service built from one Config; API, worker and e2e tests share it.
 type App struct {
-	Config   config.Config
-	Pool     *pgxpool.Pool
-	Redis    *redis.Client
-	Objects  objectstore.Store
-	Streams  *queue.Streams
-	Index    *index.Service
-	Memories *memory.Store
-	Deps     httpapi.Deps
-	Worker   *worker.Handler
+	Config    config.Config
+	Pool      *pgxpool.Pool
+	Redis     *redis.Client
+	Objects   objectstore.Store
+	Streams   *queue.Streams
+	Index     *index.Service
+	Memories  *memory.Store
+	Deps      httpapi.Deps
+	Worker    *worker.Handler
+	Reindexer *reindex.Reindexer
 }
 
 // FindMigrations locates the migrations directory from the repo root or a sub-package.
@@ -83,15 +86,26 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return fail(err)
 	}
 
-	embedder := semantic.HashEmbedder{}
+	var embedder semantic.Embedder = semantic.HashEmbedder{}
+	collection, minScore := index.DefaultCollection, index.DefaultMinScore
+	if cfg.EmbedderURL != "" {
+		embedder = semantic.NewTEIEmbedder(cfg.EmbedderURL, cfg.EmbedderDim)
+		collection, minScore = index.CollectionFor(cfg.EmbedderModel, cfg.EmbedderDim), index.DefaultModelMinScore
+	}
+	if cfg.VectorMinScore > 0 {
+		minScore = cfg.VectorMinScore
+	}
+	vector := index.NewQdrant(cfg.QdrantURL, collection, embedder.Dim())
+	vector.MinScore = minScore
 	a.Index = &index.Service{
 		Text:     index.NewOpenSearch(cfg.OpenSearchURL, ""),
-		Vector:   index.NewQdrant(cfg.QdrantURL, "", embedder.Dim()),
+		Vector:   vector,
 		Embedder: embedder,
 	}
 	if err := a.Index.Ensure(ctx); err != nil {
 		log.Printf("search index unavailable, recall falls back to postgres: %v", err)
 	}
+	log.Printf("vector collection %s (dim %d, min score %.2f)", collection, embedder.Dim(), minScore)
 	a.Memories = memory.NewStore(pool, a.Index)
 
 	authStore := auth.NewStore(pool)
@@ -114,10 +128,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Audit:       audit.NewLog(pool),
 		Deleter:     &account.Deleter{Pool: pool, Objects: objects, Index: a.Index},
 		Index:       a.Index,
+		Devices:     device.NewStore(pool, authStore),
 		CORSOrigins: cfg.CORSOrigins,
 	}
 	a.Worker = &worker.Handler{Pool: pool, Objects: objects, Memories: a.Memories,
-		Deriver: semantic.Heuristic{}, Extractor: worker.TextExtractor{}}
+		Deriver: semantic.Heuristic{}, Extractor: worker.NewExtractor(cfg.OCRLangs)}
+	a.Reindexer = &reindex.Reindexer{Pool: pool, Index: a.Index, Memories: a.Memories, Artifacts: artifacts,
+		Collection: collection}
 	return a, nil
 }
 

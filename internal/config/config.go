@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +22,15 @@ type Config struct {
 	VaultMasterKey string
 	// CORSOrigins lists browser origins allowed to call the API (the web console).
 	CORSOrigins []string
+	// EmbedderURL points at a text-embeddings-inference server; empty selects
+	// the offline hash embedder.
+	EmbedderURL   string
+	EmbedderModel string
+	EmbedderDim   int
+	// VectorMinScore overrides the embedder's default cosine cut-off when > 0.
+	VectorMinScore float64
+	// OCRLangs are tesseract language packs for image attachments; empty disables OCR.
+	OCRLangs string
 }
 
 func Load(path string) (Config, error) {
@@ -53,6 +63,27 @@ func Load(path string) (Config, error) {
 		OpenSearchURL:  vals["OPENSEARCH_URL"],
 		QdrantURL:      vals["QDRANT_URL"],
 		VaultMasterKey: vals["VAULT_MASTER_KEY"],
+		EmbedderURL:    vals["EMBEDDER_URL"],
+		EmbedderModel:  "bge-small-zh-v1.5",
+		EmbedderDim:    512,
+		OCRLangs:       vals["OCR_LANGS"],
+	}
+	if v := vals["EMBEDDER_MODEL"]; v != "" {
+		cfg.EmbedderModel = v
+	}
+	if v := vals["EMBEDDER_DIM"]; v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return Config{}, fmt.Errorf("invalid EMBEDDER_DIM: %q", v)
+		}
+		cfg.EmbedderDim = n
+	}
+	if v := vals["VECTOR_MIN_SCORE"]; v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || f < 0 || f >= 1 {
+			return Config{}, fmt.Errorf("invalid VECTOR_MIN_SCORE: %q", v)
+		}
+		cfg.VectorMinScore = f
 	}
 	for _, o := range strings.Split(vals["CORS_ORIGINS"], ",") {
 		if o = strings.TrimSpace(o); o != "" {

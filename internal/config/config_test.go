@@ -52,3 +52,32 @@ func TestLoad_ParsesCORSOrigins(t *testing.T) {
 		t.Fatalf("unexpected origins: %#v", cfg.CORSOrigins)
 	}
 }
+
+func TestLoad_EmbedderSettings(t *testing.T) {
+	write := func(t *testing.T, extra string) string {
+		p := filepath.Join(t.TempDir(), ".env")
+		if err := os.WriteFile(p, []byte("HTTP_ADDR=:1\nPOSTGRES_DSN=postgres://x\n"+extra), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	cfg, err := config.Load(write(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EmbedderURL != "" || cfg.EmbedderDim != 512 || cfg.VectorMinScore != 0 {
+		t.Fatalf("defaults: %+v", cfg)
+	}
+	cfg, err = config.Load(write(t, "EMBEDDER_URL=http://e:80\nEMBEDDER_DIM=768\nVECTOR_MIN_SCORE=0.45\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EmbedderURL != "http://e:80" || cfg.EmbedderDim != 768 || cfg.VectorMinScore != 0.45 {
+		t.Fatalf("parsed: %+v", cfg)
+	}
+	for _, bad := range []string{"EMBEDDER_DIM=0\n", "EMBEDDER_DIM=x\n", "VECTOR_MIN_SCORE=1.5\n"} {
+		if _, err := config.Load(write(t, bad)); err == nil {
+			t.Fatalf("%q must be rejected", bad)
+		}
+	}
+}

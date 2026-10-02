@@ -108,7 +108,22 @@ export default function VaultPage() {
                   {shown?.id === it.id ? (
                     <span className="row">
                       <code className="secret">{shown.secret}</code>
-                      <button className="small" onClick={() => void navigator.clipboard.writeText(shown.secret)}>复制</button>
+                      <button
+                        className="small"
+                        onClick={() => {
+                          void (async () => {
+                            try {
+                              await navigator.clipboard.writeText(shown.secret);
+                              await api.post(`/v1/vault/items/${shown.id}/copied`);
+                              notify("已复制（已记入审计）");
+                            } catch (e) {
+                              notify((e as Error).message, "error");
+                            }
+                          })();
+                        }}
+                      >
+                        复制
+                      </button>
                     </span>
                   ) : (
                     <button className="small" onClick={() => setRevealFor(it)}>查看</button>

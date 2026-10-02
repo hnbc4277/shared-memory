@@ -195,6 +195,33 @@ func TestIngest_QueueFailureMarksDegraded(t *testing.T) {
 	}
 }
 
+type failingPut struct{ *objectstore.Memory }
+
+func (failingPut) Put(context.Context, string, io.Reader, int64, string) error {
+	return errors.New("minio down")
+}
+
+func TestIngest_TranscriptFailureMarksDegradedAndStoresNoPointer(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	f.svc.Objects = failingPut{f.objects}
+	acct := testutil.NewAccount(t, f.pool)
+	res, err := f.svc.Ingest(ctx, acct, baseReq("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(res.Warnings, session.WarnTranscriptFailed) {
+		t.Fatalf("warnings = %v", res.Warnings)
+	}
+	d, _ := f.svc.Get(ctx, acct, res.SessionID)
+	if !d.Session.Degraded {
+		t.Fatal("a lost transcript must mark the session degraded")
+	}
+	if len(d.Messages) != 1 || d.Messages[0].ContentStored {
+		t.Fatalf("message must not claim a stored transcript: %+v", d.Messages)
+	}
+}
+
 func TestIngest_CannotWriteIntoAnotherAccountsSession(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
@@ -278,6 +305,45 @@ func TestIngest_RejectsForeignProject(t *testing.T) {
 	req.ProjectID = p.ID.String()
 	if _, err := f.svc.Ingest(ctx, b, req); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestIngest_ExternalSessionIDReusesSession(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	acct := testutil.NewAccount(t, f.pool)
+
+	req := baseReq("first")
+	req.ExternalSessionID = "cursor:conv_abc"
+	req.Agent = "cursor"
+	req.AgentPath = "cursor"
+	res1, err := f.svc.Ingest(ctx, acct, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2 := baseReq("second")
+	req2.ExternalSessionID = "cursor:conv_abc"
+	req2.Agent = "cursor"
+	req2.AgentPath = "cursor"
+	req2.Role = "assistant"
+	res2, err := f.svc.Ingest(ctx, acct, req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.SessionID != res1.SessionID || res2.Seq != 2 {
+		t.Fatalf("want same session seq=2, got %+v vs %+v", res1, res2)
+	}
+
+	req3 := baseReq("other agent")
+	req3.ExternalSessionID = "cursor:conv_abc"
+	req3.Agent = "codex"
+	req3.AgentPath = "codex"
+	res3, err := f.svc.Ingest(ctx, acct, req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res3.SessionID == res1.SessionID {
+		t.Fatal("different agent must not share external session")
 	}
 }
 

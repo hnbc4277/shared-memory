@@ -8,6 +8,7 @@ volumes:
   sharedmemory_os_data:
   sharedmemory_qdrant_data:
   sharedmemory_redis_data:
+  sharedmemory_embed_data:
 services:
   postgres:
     image: postgres:16
@@ -55,6 +56,24 @@ services:
     ports: ["16333:6333"]
     volumes: ["sharedmemory_qdrant_data:/qdrant/storage"]
     networks: [sharedmemory_net]
+  # Local embedding model; weights are downloaded once (via hf-mirror) into the volume.
+  embedder-model:
+    image: alpine:3.20
+    command: ["sh", "/fetch-model.sh"]
+    environment:
+      HF_ENDPOINT: https://hf-mirror.com
+    volumes:
+      - "sharedmemory_embed_data:/data"
+      - "./deploy/fetch-model.sh:/fetch-model.sh:ro"
+    networks: [sharedmemory_net]
+  embedder:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    command: ["--model-id", "/data/bge-small-zh-v1.5", "--pooling", "cls"]
+    ports: ["18081:80"]
+    volumes: ["sharedmemory_embed_data:/data"]
+    networks: [sharedmemory_net]
+    depends_on:
+      embedder-model: {condition: service_completed_successfully}
   # Opt-in app containers: docker compose --profile app up -d --build
   api:
     profiles: [app]
@@ -70,6 +89,7 @@ services:
       minio: {condition: service_started}
       opensearch: {condition: service_started}
       qdrant: {condition: service_started}
+      embedder: {condition: service_started}
     restart: unless-stopped
   worker:
     profiles: [app]

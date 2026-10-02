@@ -139,18 +139,25 @@ function Editor({ initial, onDone }: { initial?: ArtifactDetail; onDone: () => P
   const [tags, setTags] = useState(initial?.artifact.tags.join(", ") ?? "");
   const [body, setBody] = useState(initial?.body ?? "");
 
-  async function save(acknowledgeSecret = false) {
+  async function save(opts: { acknowledgeSecret?: boolean; moveSecretsToVault?: boolean } = {}) {
     const payload = {
-      title, type, body, acknowledge_secret: acknowledgeSecret,
+      title, type, body,
+      acknowledge_secret: !!opts.acknowledgeSecret,
+      move_secrets_to_vault: !!opts.moveSecretsToVault,
       tags: tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean),
     };
     try {
       if (initial) await api.put(`/v1/artifacts/${initial.artifact.id}`, payload);
       else await api.post("/v1/artifacts", { ...payload, project_id: projectId || undefined });
+      if (opts.moveSecretsToVault) notify("敏感内容已改存凭证库，正文已脱敏");
       await onDone();
     } catch (e) {
       const err = e as Error & { status?: number };
-      if (err.status === 409 && confirm(`${err.message}\n\n仍然保存？`)) return save(true);
+      if (err.status === 409) {
+        const move = confirm(`${err.message}\n\n改存凭证库并脱敏保存？\n（取消则询问是否仍以明文保存）`);
+        if (move) return save({ moveSecretsToVault: true });
+        if (confirm("仍以明文保存到成稿库？")) return save({ acknowledgeSecret: true });
+      }
       notify(err.message, "error");
     }
   }

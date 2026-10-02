@@ -76,6 +76,56 @@ func (s *Store) project(ctx context.Context, accountID uuid.UUID, m Memory) {
 	}
 }
 
+// ReindexAll re-projects every live memory into the search engines and
+// stops at the first failure so a partial backfill is never reported as done.
+func (s *Store) ReindexAll(ctx context.Context) (int, error) {
+	if s.index == nil {
+		return 0, nil
+	}
+	var after uuid.UUID
+	n := 0
+	for {
+		rows, err := s.pool.Query(ctx, `SELECT account_id, `+columns+` FROM memories
+			WHERE NOT invalidated AND id > $1 ORDER BY id LIMIT 500`, after)
+		if err != nil {
+			return n, err
+		}
+		type item struct {
+			account uuid.UUID
+			m       Memory
+		}
+		var batch []item
+		for rows.Next() {
+			var it item
+			if err := rows.Scan(&it.account, &it.m.ID, &it.m.ProjectID, &it.m.Scope, &it.m.Kind, &it.m.Body,
+				&it.m.SourceSessionID, &it.m.SourceAgentPath, &it.m.Supersedes, &it.m.Invalidated,
+				&it.m.CreatedAt, &it.m.UpdatedAt); err != nil {
+				rows.Close()
+				return n, err
+			}
+			batch = append(batch, it)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return n, err
+		}
+		for _, it := range batch {
+			if err := s.index.IndexDoc(ctx, index.Doc{
+				ID: it.m.ID, DocType: index.DocMemory, AccountID: it.account, ProjectID: it.m.ProjectID,
+				Scope: it.m.Scope, Kind: it.m.Kind, Body: it.m.Body, SourceSessionID: it.m.SourceSessionID,
+				SourceAgentPath: it.m.SourceAgentPath, CreatedAt: it.m.CreatedAt,
+			}); err != nil {
+				return n, fmt.Errorf("reindex memory %s: %w", it.m.ID, err)
+			}
+			n++
+		}
+		if len(batch) < 500 {
+			return n, nil
+		}
+		after = batch[len(batch)-1].m.ID
+	}
+}
+
 func (s *Store) unproject(ctx context.Context, accountID, id uuid.UUID) {
 	if s.index == nil {
 		return

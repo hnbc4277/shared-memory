@@ -1,8 +1,12 @@
 ﻿.env
 bin/
 *.exe
-web/node_modules/
-web/dist/
+**/node_modules/
+**/dist/
+**/__pycache__/
+*.pyc
 *.tsbuildinfo
 .worktrees/
 .superpowers/
+sdk/typescript/package-lock.json
+adapters/openclaw/package-lock.json

@@ -252,18 +252,25 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("plaintext secret leaked through %s: %s", name, raw)
 		}
 	}
+	A.must(204, "POST", "/v1/vault/items/"+item.ID+"/copied", nil, nil)
+	if code, _ := B.do("POST", "/v1/vault/items/"+item.ID+"/copied", nil); code != 404 {
+		t.Fatalf("B auditing a copy of A's secret: %d", code)
+	}
 	var auditLog []struct {
 		Action string `json:"action"`
 	}
 	A.must(200, "GET", "/v1/audit", nil, &auditLog)
-	reveals := 0
+	reveals, copies := 0, 0
 	for _, e := range auditLog {
-		if e.Action == "vault.reveal" {
+		switch e.Action {
+		case "vault.reveal":
 			reveals++
+		case "vault.copy":
+			copies++
 		}
 	}
-	if reveals != 2 {
-		t.Fatalf("expected 2 audited reveal attempts, got %d", reveals)
+	if reveals != 2 || copies != 1 {
+		t.Fatalf("expected 2 audited reveals and 1 copy, got %d and %d", reveals, copies)
 	}
 
 	// 7. artifact: offered for a long reply, kept only after consent
@@ -293,6 +300,20 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if code, _ := A.do("POST", "/v1/artifacts", map[string]any{"title": "x", "body": "token: abc123456"}); code != 409 {
 		t.Fatalf("artifact with secret must need acknowledgement, got %d", code)
+	}
+	var vaultBefore []any
+	A.must(200, "GET", "/v1/vault/items", nil, &vaultBefore)
+	var moved struct {
+		Body         string `json:"body"`
+		MovedToVault int    `json:"moved_to_vault"`
+	}
+	A.must(201, "POST", "/v1/artifacts", map[string]any{"title": "部署笔记",
+		"body": "登录 https://ci.example.com 账号: bot 密码: Ci#77abc", "move_secrets_to_vault": true}, &moved)
+	var vaultAfter []any
+	A.must(200, "GET", "/v1/vault/items", nil, &vaultAfter)
+	if moved.MovedToVault != 1 || strings.Contains(moved.Body, "Ci#77abc") || len(vaultAfter) != len(vaultBefore)+1 {
+		t.Fatalf("secret must move to the vault and leave the artifact redacted: %+v vault %d->%d",
+			moved, len(vaultBefore), len(vaultAfter))
 	}
 
 	// 8. delete A -> everything gone, B untouched

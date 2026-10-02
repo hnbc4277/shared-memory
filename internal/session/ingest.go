@@ -130,6 +130,36 @@ func (s *Service) Ingest(ctx context.Context, accountID uuid.UUID, req IngestMes
 			return IngestResult{}, fmt.Errorf("%w: project_id does not match the session's project", ErrInvalid)
 		}
 		projectID = sessProject
+	} else if req.ExternalSessionID != "" {
+		err := tx.QueryRow(ctx, `
+			SELECT id, project_id FROM sessions
+			WHERE account_id = $1 AND agent = $2 AND external_session_id = $3
+			FOR UPDATE`,
+			accountID, req.Agent, req.ExternalSessionID,
+		).Scan(&sessionID, &projectID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return IngestResult{}, err
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			sessionID = uuid.New()
+			title := strings.TrimSpace(req.Title)
+			if title == "" {
+				title = firstLine(content, 60)
+			}
+			pid := optUUID(req.ProjectID)
+			projectID = pid
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO sessions (id, account_id, project_id, agent, agent_path, title, status, started_at, ended_at, external_session_id)
+				VALUES ($1,$2,$3,$4,$5,$6,'active',now(),now(),$7)`,
+				sessionID, accountID, projectID, req.Agent, req.AgentPath, title, req.ExternalSessionID); err != nil {
+				return IngestResult{}, fmt.Errorf("insert session: %w", err)
+			}
+		} else if projectID != nil && req.ProjectID != "" {
+			want := uuid.MustParse(req.ProjectID)
+			if *projectID != want {
+				return IngestResult{}, fmt.Errorf("%w: project_id does not match the session's project", ErrInvalid)
+			}
+		}
 	} else {
 		sessionID = uuid.New()
 		title := strings.TrimSpace(req.Title)
@@ -210,7 +240,9 @@ func (s *Service) Ingest(ctx context.Context, accountID uuid.UUID, req IngestMes
 			return IngestResult{}, err
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE sessions SET ended_at = $2 WHERE id = $1`, sessionID, now); err != nil {
+	transcriptLost := pol.StoreTranscript && objectKey == nil
+	if _, err := tx.Exec(ctx, `UPDATE sessions SET ended_at = $2, degraded = degraded OR $3 WHERE id = $1`,
+		sessionID, now, transcriptLost); err != nil {
 		s.dropObject(objectKey)
 		return IngestResult{}, err
 	}

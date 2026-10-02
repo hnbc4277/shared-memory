@@ -27,12 +27,12 @@ const (
 	attachmentHead = 1000
 )
 
-// Extractor turns an attachment binary into searchable text. Images and PDFs
-// need OCR/parsers that ship later; they return "" for now.
+// Extractor turns an attachment binary into searchable text.
 type Extractor interface {
 	Extract(ctx context.Context, mimeType string, data []byte) (string, error)
 }
 
+// TextExtractor handles text attachments only; tests use it to avoid tools.
 type TextExtractor struct{}
 
 func (TextExtractor) Extract(_ context.Context, mimeType string, data []byte) (string, error) {
