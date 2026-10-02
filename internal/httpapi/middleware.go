@@ -12,15 +12,27 @@ import (
 
 type ctxKey int
 
-const accountIDKey ctxKey = 1
+const (
+	accountIDKey ctxKey = 1
+	deviceIDKey  ctxKey = 2
+)
 
 func AccountIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 	id, ok := ctx.Value(accountIDKey).(uuid.UUID)
 	return id, ok
 }
 
+func DeviceIDFromContext(ctx context.Context) (uuid.UUID, bool) {
+	id, ok := ctx.Value(deviceIDKey).(uuid.UUID)
+	return id, ok
+}
+
 func withAccountID(ctx context.Context, id uuid.UUID) context.Context {
 	return context.WithValue(ctx, accountIDKey, id)
+}
+
+func withDeviceID(ctx context.Context, id uuid.UUID) context.Context {
+	return context.WithValue(ctx, deviceIDKey, id)
 }
 
 func BearerAuth(store *auth.Store) func(http.Handler) http.Handler {
@@ -32,12 +44,16 @@ func BearerAuth(store *auth.Store) func(http.Handler) http.Handler {
 				return
 			}
 			token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-			accountID, err := store.AuthenticateAPIKey(r.Context(), token)
+			accountID, deviceID, err := store.AuthenticateAPIKeyFull(r.Context(), token)
 			if err != nil {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(withAccountID(r.Context(), accountID)))
+			ctx := withAccountID(r.Context(), accountID)
+			if deviceID != nil {
+				ctx = withDeviceID(ctx, *deviceID)
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

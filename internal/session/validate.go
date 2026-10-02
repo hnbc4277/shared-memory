@@ -57,6 +57,11 @@ func ValidateIngest(req IngestMessageRequest) error {
 			return invalid("session_id must be a uuid")
 		}
 	}
+	if ext := strings.TrimSpace(req.ExternalSessionID); ext != "" {
+		if len(ext) > 256 {
+			return invalid("external_session_id must be at most 256 characters")
+		}
+	}
 	if req.ProjectID != "" {
 		if _, err := uuid.Parse(req.ProjectID); err != nil {
 			return invalid("project_id must be a uuid")
@@ -74,6 +79,7 @@ func ValidateIngest(req IngestMessageRequest) error {
 func Normalize(req IngestMessageRequest) IngestMessageRequest {
 	req.Agent = strings.TrimSpace(req.Agent)
 	req.AgentPath = strings.TrimSpace(req.AgentPath)
+	req.ExternalSessionID = strings.TrimSpace(req.ExternalSessionID)
 	if req.AgentPath == "" {
 		req.AgentPath = req.Agent
 	}

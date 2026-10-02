@@ -223,8 +223,9 @@ var toolDefs = []map[string]any{
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"session_id": map[string]any{"type": "string"}, "project_id": map[string]any{"type": "string"},
-				"title": map[string]any{"type": "string"}, "agent": map[string]any{"type": "string"},
+				"session_id": map[string]any{"type": "string"}, "external_session_id": map[string]any{"type": "string"},
+				"project_id": map[string]any{"type": "string"},
+				"title":      map[string]any{"type": "string"}, "agent": map[string]any{"type": "string"},
 				"agent_path": map[string]any{"type": "string"}, "skills": stringList, "plugins": stringList, "tools": stringList,
 				"model":   map[string]any{"type": "string"},
 				"role":    map[string]any{"type": "string", "enum": []string{"user", "assistant", "system", "tool"}},

@@ -15,6 +15,7 @@ import (
 	"sharedmemory/internal/attachment"
 	"sharedmemory/internal/audit"
 	"sharedmemory/internal/auth"
+	"sharedmemory/internal/device"
 	"sharedmemory/internal/index"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/policy"
@@ -38,6 +39,7 @@ type Deps struct {
 	Audit       *audit.Log
 	Deleter     *account.Deleter
 	Index       *index.Service
+	Devices     *device.Store
 	CORSOrigins []string
 }
 
@@ -58,11 +60,17 @@ func NewRouter(d Deps) http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("POST /v1/auth/register", r.handleRegister)
+	mux.HandleFunc("POST /v1/device/code", r.handleDeviceCode)
+	mux.HandleFunc("POST /v1/device/token", r.handleDeviceToken)
 
 	handle("GET /v1/me", r.handleMe)
 	handle("POST /v1/auth/api-keys", r.handleCreateAPIKey)
 	handle("GET /v1/auth/api-keys", r.handleListAPIKeys)
 	handle("DELETE /v1/auth/api-keys/{id}", r.handleRevokeAPIKey)
+	handle("POST /v1/device/approve", r.handleDeviceApprove)
+	handle("GET /v1/devices", r.handleListDevices)
+	handle("DELETE /v1/devices/{id}", r.handleRevokeDevice)
+	handle("POST /v1/devices/heartbeat", r.handleDeviceHeartbeat)
 
 	handle("POST /v1/projects", r.handleCreateProject)
 	handle("GET /v1/projects", r.handleListProjects)
@@ -93,6 +101,7 @@ func NewRouter(d Deps) http.Handler {
 	handle("PUT /v1/vault/items/{id}", r.handleUpdateVault)
 	handle("DELETE /v1/vault/items/{id}", r.handleDeleteVault)
 	handle("POST /v1/vault/items/{id}/reveal", r.handleRevealVault)
+	handle("POST /v1/vault/items/{id}/copied", r.handleCopiedVault)
 
 	handle("GET /v1/artifacts/candidates", r.handleListArtifactCandidates)
 	handle("POST /v1/artifacts/candidates/{id}/accept", r.handleAcceptArtifact)

@@ -11,6 +11,7 @@ import (
 // so a missing JSON key can be told apart from an explicit empty array.
 type IngestMessageRequest struct {
 	SessionID           string    `json:"session_id"`
+	ExternalSessionID   string    `json:"external_session_id"`
 	ProjectID           string    `json:"project_id"`
 	Title               string    `json:"title"`
 	Agent               string    `json:"agent"`

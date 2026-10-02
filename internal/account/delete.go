@@ -55,7 +55,9 @@ var accountStatements = []string{
 	`DELETE FROM sessions WHERE account_id = $1`,
 	`DELETE FROM projects WHERE account_id = $1`,
 	`DELETE FROM account_policies WHERE account_id = $1`,
+	`DELETE FROM device_codes WHERE account_id = $1`,
 	`DELETE FROM api_keys WHERE account_id = $1`,
+	`DELETE FROM devices WHERE account_id = $1`,
 	`DELETE FROM audit_logs WHERE account_id = $1`,
 	`DELETE FROM accounts WHERE id = $1`,
 }
