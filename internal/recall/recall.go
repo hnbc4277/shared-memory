@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"sharedmemory/internal/entity"
 	"sharedmemory/internal/index"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/policy"
@@ -65,6 +66,7 @@ type Service struct {
 	Index    *index.Service
 	Memories *memory.Store
 	Policies *policy.Store
+	Entities *entity.Store
 	Timeout  time.Duration
 }
 
@@ -96,6 +98,7 @@ func (s *Service) Recall(ctx context.Context, accountID uuid.UUID, req Request) 
 	}
 
 	if q := strings.TrimSpace(req.Query); q != "" {
+		searchQ := expandQuery(ctx, s.Entities, accountID, req.ProjectID, q)
 		var hits []index.Hit
 		var searchErr error
 		if s.Index != nil {
@@ -105,7 +108,7 @@ func (s *Service) Recall(ctx context.Context, accountID uuid.UUID, req Request) 
 			}
 			sctx, cancel := context.WithTimeout(ctx, timeout)
 			hits, searchErr = s.Index.Search(sctx, index.Query{AccountID: accountID, ProjectID: req.ProjectID,
-				Text: q, Limit: req.TopK * 2})
+				Text: searchQ, Limit: req.TopK * 2})
 			cancel()
 			if searchErr != nil {
 				log.Printf("recall search: %v", searchErr)
@@ -118,7 +121,7 @@ func (s *Service) Recall(ctx context.Context, accountID uuid.UUID, req Request) 
 		}
 		if len(items) == 0 {
 			res.Warnings = append(res.Warnings, WarnPGFallback)
-			mems, err := s.Memories.Search(ctx, accountID, req.ProjectID, q, req.TopK)
+			mems, err := s.Memories.Search(ctx, accountID, req.ProjectID, searchQ, req.TopK)
 			if err != nil {
 				return res, err
 			}
@@ -145,6 +148,18 @@ func (s *Service) Recall(ctx context.Context, accountID uuid.UUID, req Request) 
 func fromMemory(m memory.Memory, score float64) Item {
 	return Item{ID: m.ID, DocType: index.DocMemory, Kind: m.Kind, Scope: m.Scope, Body: m.Body,
 		SourceSessionID: m.SourceSessionID, SourceAgentPath: m.SourceAgentPath, CreatedAt: m.CreatedAt, Score: score}
+}
+
+// expandQuery resolves entity aliases so "OS" can match memories about "OpenSearch".
+func expandQuery(ctx context.Context, entities *entity.Store, accountID uuid.UUID, projectID *uuid.UUID, q string) string {
+	if entities == nil {
+		return q
+	}
+	canon, err := entities.Resolve(ctx, accountID, projectID, q)
+	if err != nil || canon == "" || canon == q {
+		return q
+	}
+	return canon + " " + q
 }
 
 // hydrate re-reads every hit from Postgres so stale projections (deleted or

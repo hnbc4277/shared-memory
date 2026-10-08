@@ -67,19 +67,20 @@ type Session struct {
 }
 
 type Message struct {
-	ID            uuid.UUID `json:"id"`
-	Seq           int       `json:"seq"`
-	Role          string    `json:"role"`
-	Agent         string    `json:"agent"`
-	AgentPath     string    `json:"agent_path"`
-	Skills        []string  `json:"skills"`
-	Plugins       []string  `json:"plugins"`
-	Tools         []string  `json:"tools"`
-	Model         string    `json:"model"`
-	Content       *string   `json:"content"`
-	ContentStored bool      `json:"content_stored"`
-	AttachmentIDs []string  `json:"attachment_ids"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID            uuid.UUID  `json:"id"`
+	Seq           int        `json:"seq"`
+	Role          string     `json:"role"`
+	Agent         string     `json:"agent"`
+	AgentPath     string     `json:"agent_path"`
+	Skills        []string   `json:"skills"`
+	Plugins       []string   `json:"plugins"`
+	Tools         []string   `json:"tools"`
+	ToolCalls     []ToolCall `json:"tool_calls,omitempty"`
+	Model         string     `json:"model"`
+	Content       *string    `json:"content"`
+	ContentStored bool       `json:"content_stored"`
+	AttachmentIDs []string   `json:"attachment_ids"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 type SessionDetail struct {

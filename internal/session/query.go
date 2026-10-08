@@ -122,6 +122,10 @@ func (s *Service) Get(ctx context.Context, accountID, sessionID uuid.UUID) (Sess
 	if err := rows.Err(); err != nil {
 		return SessionDetail{}, err
 	}
+	callsByMsg, err := s.loadToolCalls(ctx, accountID, sessionID)
+	if err != nil {
+		return SessionDetail{}, err
+	}
 	d := SessionDetail{Session: se, Messages: make([]Message, 0, len(list))}
 	for _, p := range list {
 		if p.key != nil {
@@ -130,9 +134,40 @@ func (s *Service) Get(ctx context.Context, accountID, sessionID uuid.UUID) (Sess
 				p.msg.ContentStored = true
 			}
 		}
+		p.msg.ToolCalls = callsByMsg[p.msg.ID]
 		d.Messages = append(d.Messages, p.msg)
 	}
 	return d, nil
+}
+
+func (s *Service) loadToolCalls(ctx context.Context, accountID, sessionID uuid.UUID) (map[uuid.UUID][]ToolCall, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT message_id, kind, name, started_at, ended_at, COALESCE(output_truncated, '')
+		FROM tool_calls WHERE session_id = $1 AND account_id = $2
+		ORDER BY started_at`, sessionID, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uuid.UUID][]ToolCall{}
+	for rows.Next() {
+		var msgID *uuid.UUID
+		var tc ToolCall
+		var started time.Time
+		var ended *time.Time
+		if err := rows.Scan(&msgID, &tc.Kind, &tc.Name, &started, &ended, &tc.Output); err != nil {
+			return nil, err
+		}
+		tc.StartedAt = started.UTC().Format(time.RFC3339)
+		if ended != nil {
+			tc.EndedAt = ended.UTC().Format(time.RFC3339)
+		}
+		if msgID == nil {
+			continue
+		}
+		out[*msgID] = append(out[*msgID], tc)
+	}
+	return out, rows.Err()
 }
 
 type MessageRef struct {
