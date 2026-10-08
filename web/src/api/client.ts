@@ -153,6 +153,7 @@ export interface RecallResult {
   context: string;
   inject_enabled: boolean;
   warnings: string[];
+  receipt_id?: string;
 }
 
 export interface Policy {
@@ -161,6 +162,7 @@ export interface Policy {
   inject_enabled: boolean;
   vault_enabled: boolean;
   artifact_searchable: boolean;
+  cloud_vision_enabled: boolean;
   retention_days: number;
 }
 

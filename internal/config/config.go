@@ -31,6 +31,14 @@ type Config struct {
 	VectorMinScore float64
 	// OCRLangs are tesseract language packs for image attachments; empty disables OCR.
 	OCRLangs string
+	// LLMDeriverURL is an OpenAI-compatible chat completions base (…/v1); empty keeps Heuristic.
+	LLMDeriverURL    string
+	LLMDeriverAPIKey string
+	LLMDeriverModel  string
+	// VisionURL is an OpenAI-compatible multimodal chat completions base; empty keeps OCR/metadata only.
+	VisionURL    string
+	VisionAPIKey string
+	VisionModel  string
 }
 
 func Load(path string) (Config, error) {
@@ -66,7 +74,13 @@ func Load(path string) (Config, error) {
 		EmbedderURL:    vals["EMBEDDER_URL"],
 		EmbedderModel:  "bge-small-zh-v1.5",
 		EmbedderDim:    512,
-		OCRLangs:       vals["OCR_LANGS"],
+		OCRLangs:         vals["OCR_LANGS"],
+		LLMDeriverURL:    vals["LLM_DERIVER_URL"],
+		LLMDeriverAPIKey: vals["LLM_DERIVER_API_KEY"],
+		LLMDeriverModel:  firstNonEmpty(vals["LLM_DERIVER_MODEL"], "gpt-4o-mini"),
+		VisionURL:        vals["VISION_URL"],
+		VisionAPIKey:     vals["VISION_API_KEY"],
+		VisionModel:      firstNonEmpty(vals["VISION_MODEL"], "gpt-4o-mini"),
 	}
 	if v := vals["EMBEDDER_MODEL"]; v != "" {
 		cfg.EmbedderModel = v
@@ -94,4 +108,13 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("missing required env")
 	}
 	return cfg, nil
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

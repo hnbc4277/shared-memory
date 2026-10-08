@@ -9,12 +9,13 @@ import (
 )
 
 type Policy struct {
-	StoreTranscript    bool `json:"store_transcript"`
-	StoreAttachments   bool `json:"store_attachments"`
-	InjectEnabled      bool `json:"inject_enabled"`
-	VaultEnabled       bool `json:"vault_enabled"`
-	ArtifactSearchable bool `json:"artifact_searchable"`
-	RetentionDays      int  `json:"retention_days"`
+	StoreTranscript     bool `json:"store_transcript"`
+	StoreAttachments    bool `json:"store_attachments"`
+	InjectEnabled       bool `json:"inject_enabled"`
+	VaultEnabled        bool `json:"vault_enabled"`
+	ArtifactSearchable  bool `json:"artifact_searchable"`
+	CloudVisionEnabled  bool `json:"cloud_vision_enabled"`
+	RetentionDays       int  `json:"retention_days"`
 }
 
 func Default() Policy {
@@ -24,6 +25,7 @@ func Default() Policy {
 		InjectEnabled:      true,
 		VaultEnabled:       true,
 		ArtifactSearchable: true,
+		CloudVisionEnabled: true,
 	}
 }
 
@@ -41,10 +43,10 @@ func (s *Store) Get(ctx context.Context, accountID uuid.UUID) (Policy, error) {
 		INSERT INTO account_policies (account_id) VALUES ($1)
 		ON CONFLICT (account_id) DO UPDATE SET account_id = EXCLUDED.account_id
 		RETURNING store_transcript, store_attachments, inject_enabled,
-		          vault_enabled, artifact_searchable, retention_days`,
+		          vault_enabled, artifact_searchable, cloud_vision_enabled, retention_days`,
 		accountID,
 	).Scan(&p.StoreTranscript, &p.StoreAttachments, &p.InjectEnabled,
-		&p.VaultEnabled, &p.ArtifactSearchable, &p.RetentionDays)
+		&p.VaultEnabled, &p.ArtifactSearchable, &p.CloudVisionEnabled, &p.RetentionDays)
 	if err != nil {
 		return Policy{}, fmt.Errorf("get policy: %w", err)
 	}
@@ -57,17 +59,18 @@ func (s *Store) Update(ctx context.Context, accountID uuid.UUID, p Policy) error
 	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO account_policies (account_id, store_transcript, store_attachments,
-			inject_enabled, vault_enabled, artifact_searchable, retention_days)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+			inject_enabled, vault_enabled, artifact_searchable, cloud_vision_enabled, retention_days)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (account_id) DO UPDATE SET
 			store_transcript = EXCLUDED.store_transcript,
 			store_attachments = EXCLUDED.store_attachments,
 			inject_enabled = EXCLUDED.inject_enabled,
 			vault_enabled = EXCLUDED.vault_enabled,
 			artifact_searchable = EXCLUDED.artifact_searchable,
+			cloud_vision_enabled = EXCLUDED.cloud_vision_enabled,
 			retention_days = EXCLUDED.retention_days`,
 		accountID, p.StoreTranscript, p.StoreAttachments, p.InjectEnabled,
-		p.VaultEnabled, p.ArtifactSearchable, p.RetentionDays,
+		p.VaultEnabled, p.ArtifactSearchable, p.CloudVisionEnabled, p.RetentionDays,
 	)
 	if err != nil {
 		return fmt.Errorf("update policy: %w", err)

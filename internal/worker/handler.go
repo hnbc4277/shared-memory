@@ -16,6 +16,7 @@ import (
 	"sharedmemory/internal/entity"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/objectstore"
+	"sharedmemory/internal/policy"
 	"sharedmemory/internal/queue"
 	"sharedmemory/internal/semantic"
 	"sharedmemory/internal/vault"
@@ -50,6 +51,7 @@ type Handler struct {
 	Deriver   semantic.Deriver
 	Extractor Extractor
 	Entities  *entity.Store
+	Policies  *policy.Store
 }
 
 func (h *Handler) Handle(ctx context.Context, job queue.Job) error {
@@ -175,7 +177,13 @@ func (h *Handler) handleAttachment(ctx context.Context, job queue.Job) error {
 	if err != nil {
 		return err
 	}
-	text, err := h.Extractor.Extract(ctx, mimeType, data)
+	allowVision := false
+	if h.Policies != nil {
+		if pol, err := h.Policies.Get(ctx, job.AccountID); err == nil {
+			allowVision = pol.CloudVisionEnabled
+		}
+	}
+	text, err := h.Extractor.Extract(WithCloudVision(ctx, allowVision), mimeType, data)
 	if err != nil {
 		return err
 	}

@@ -42,11 +42,24 @@ func execRun(ctx context.Context, name string, args []string, stdin []byte) ([]b
 	return out, err
 }
 
+type visionCtxKey struct{}
+
+// WithCloudVision marks whether multimodal vision may be used for this extract.
+func WithCloudVision(ctx context.Context, allow bool) context.Context {
+	return context.WithValue(ctx, visionCtxKey{}, allow)
+}
+
+func cloudVisionAllowed(ctx context.Context) bool {
+	v, _ := ctx.Value(visionCtxKey{}).(bool)
+	return v
+}
+
 // DocExtractor turns attachments into searchable text: text as-is, docx in
-// pure Go, PDF via pdftotext, and images via a visual description plus optional
-// tesseract OCR. A missing tool disables that format instead of failing the job.
+// pure Go, PDF via pdftotext, and images via metadata/OCR plus optional cloud vision.
+// A missing tool disables that format instead of failing the job.
 type DocExtractor struct {
 	OCRLangs string
+	Vision   *VisionClient
 	run      runFunc
 	missing  sync.Map
 }
@@ -72,27 +85,31 @@ func (e *DocExtractor) Extract(ctx context.Context, mimeType string, data []byte
 	return "", nil
 }
 
-// imageDerived builds a visual description (format + dimensions) and appends OCR
-// text when languages are configured. This is the local substitute for a vision
-// model: searchable without leaving the project compose stack.
+// imageDerived builds format/dimensions, optional cloud vision text, then OCR.
+// Vision failures degrade to local description; they never fail the job alone.
 func (e *DocExtractor) imageDerived(ctx context.Context, mimeType string, data []byte) (string, error) {
-	desc := describeImage(mimeType, data)
-	var ocr string
+	parts := []string{}
+	if desc := describeImage(mimeType, data); desc != "" {
+		parts = append(parts, desc)
+	}
+	if cloudVisionAllowed(ctx) && e.Vision != nil && e.Vision.Enabled() {
+		vdesc, err := e.Vision.Describe(ctx, mimeType, data)
+		if err != nil {
+			log.Printf("vision describe: %v", err)
+		} else if vdesc = strings.TrimSpace(vdesc); vdesc != "" {
+			parts = append(parts, "视觉描述："+vdesc)
+		}
+	}
 	if e.OCRLangs != "" {
 		text, err := e.tool(ctx, "tesseract", []string{"stdin", "stdout", "-l", e.OCRLangs}, data)
 		if err != nil {
-			return desc, err
+			return strings.Join(parts, "\n"), err
 		}
-		ocr = strings.TrimSpace(text)
+		if ocr := strings.TrimSpace(text); ocr != "" {
+			parts = append(parts, "OCR："+ocr)
+		}
 	}
-	switch {
-	case desc != "" && ocr != "":
-		return desc + "\nOCR：" + ocr, nil
-	case desc != "":
-		return desc, nil
-	default:
-		return ocr, nil
-	}
+	return strings.Join(parts, "\n"), nil
 }
 
 func describeImage(mimeType string, data []byte) string {

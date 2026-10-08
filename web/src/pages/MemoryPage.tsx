@@ -64,7 +64,10 @@ export default function MemoryPage() {
         </form>
         {recall && (
           <div className="recall">
-            {recall.warnings.length > 0 && <div className="muted small">提示：{recall.warnings.join("、")}</div>}
+            {recall.warnings.length > 0 && (
+              <div className="error-line">召回降级/警告：{recall.warnings.join("、")}（可继续对话；Receipt 会记录 degraded）</div>
+            )}
+            {recall.receipt_id && <div className="muted small">Receipt：{recall.receipt_id}</div>}
             {recall.hits.length === 0 && <Empty>没有命中。</Empty>}
             {recall.hits.map((h) => (
               <div key={h.id} className="hit">

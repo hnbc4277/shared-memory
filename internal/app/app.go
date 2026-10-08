@@ -139,8 +139,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		RateLimit:   &ratelimit.Limiter{Redis: a.Redis, Limit: 120, Window: time.Minute},
 		CORSOrigins: cfg.CORSOrigins,
 	}
+	deriver := semantic.Deriver(semantic.Heuristic{})
+	if cfg.LLMDeriverURL != "" {
+		deriver = semantic.NewLLMDeriver(cfg.LLMDeriverURL, cfg.LLMDeriverAPIKey, cfg.LLMDeriverModel)
+		log.Printf("llm deriver enabled (%s)", cfg.LLMDeriverModel)
+	}
+	extractor := worker.NewExtractor(cfg.OCRLangs)
+	if cfg.VisionURL != "" {
+		extractor.Vision = worker.NewVisionClient(cfg.VisionURL, cfg.VisionAPIKey, cfg.VisionModel)
+		log.Printf("vision describer enabled (%s)", cfg.VisionModel)
+	}
 	a.Worker = &worker.Handler{Pool: pool, Objects: objects, Memories: a.Memories,
-		Deriver: semantic.Heuristic{}, Extractor: worker.NewExtractor(cfg.OCRLangs), Entities: entities}
+		Deriver: deriver, Extractor: extractor, Entities: entities, Policies: policies}
 	a.Reindexer = &reindex.Reindexer{Pool: pool, Index: a.Index, Memories: a.Memories, Artifacts: artifacts,
 		Collection: collection}
 	return a, nil

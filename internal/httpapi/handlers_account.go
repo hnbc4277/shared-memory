@@ -140,6 +140,7 @@ type policyPatch struct {
 	InjectEnabled      *bool `json:"inject_enabled"`
 	VaultEnabled       *bool `json:"vault_enabled"`
 	ArtifactSearchable *bool `json:"artifact_searchable"`
+	CloudVisionEnabled *bool `json:"cloud_vision_enabled"`
 	RetentionDays      *int  `json:"retention_days"`
 }
 
@@ -164,6 +165,7 @@ func (r *Router) handlePutPolicy(w http.ResponseWriter, req *http.Request) {
 	setIf(&p.InjectEnabled, patch.InjectEnabled)
 	setIf(&p.VaultEnabled, patch.VaultEnabled)
 	setIf(&p.ArtifactSearchable, patch.ArtifactSearchable)
+	setIf(&p.CloudVisionEnabled, patch.CloudVisionEnabled)
 	setIf(&p.RetentionDays, patch.RetentionDays)
 	if err := r.Policies.Update(req.Context(), accountOf(req), p); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

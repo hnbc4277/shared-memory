@@ -39,6 +39,7 @@ const TOGGLES: { key: keyof Policy; label: string; hint: string }[] = [
   { key: "inject_enabled", label: "自动注入记忆", hint: "智能体开始任务时自动带上相关记忆" },
   { key: "vault_enabled", label: "检测账号口令", hint: "检测到口令时询问是否加密保存到凭证库（无论开关，口令都不会以明文存储）" },
   { key: "artifact_searchable", label: "成稿参与检索", hint: "允许召回时检索已保存的成稿内容" },
+  { key: "cloud_vision_enabled", label: "云侧图片视觉描述", hint: "开启后，配置了 VISION_URL 的 Worker 可用多模态模型描述图片；关闭则仅用本地宽高/OCR" },
 ];
 
 const RETENTION_OPTIONS = [0, 7, 30, 90, 180, 365];
