@@ -134,6 +134,9 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 		}
 		out, err = s.Client.CallRaw(ctx, http.MethodPost, "/v1/ingest", args)
 	case "memory_recall":
+		if _, ok := args["source"]; !ok {
+			args["source"] = "mcp"
+		}
 		out, err = s.Client.CallRaw(ctx, http.MethodPost, "/v1/recall", args)
 	case "memory_list_sessions":
 		q := url.Values{}

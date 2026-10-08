@@ -49,6 +49,20 @@ function subIdFromSpawn(event: any): string {
   );
 }
 
+function asStringList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => String(x ?? "").trim()).filter(Boolean);
+}
+
+function provenanceOf(event: any): { skills: string[]; plugins: string[]; tools: string[]; model: string } {
+  return {
+    skills: asStringList(event?.skills ?? event?.skill),
+    plugins: asStringList(event?.plugins ?? event?.plugin),
+    tools: asStringList(event?.tools ?? event?.tool),
+    model: asText(event?.model || event?.modelName).trim() || "unknown",
+  };
+}
+
 async function ingestSafe(
   client: Client,
   fields: {
@@ -56,6 +70,10 @@ async function ingestSafe(
     content: string;
     external_session_id?: string;
     agent_path?: string;
+    skills?: string[];
+    plugins?: string[];
+    tools?: string[];
+    model?: string;
   },
 ): Promise<void> {
   const content = fields.content.trim();
@@ -67,9 +85,10 @@ async function ingestSafe(
       role: fields.role,
       content,
       external_session_id: fields.external_session_id || undefined,
-      skills: [],
-      plugins: [],
-      tools: [],
+      skills: fields.skills ?? [],
+      plugins: fields.plugins ?? [],
+      tools: fields.tools ?? [],
+      model: fields.model || "unknown",
     });
   } catch {
     // Observation hooks must not break the host.
@@ -109,11 +128,13 @@ export default definePluginEntry({
         asText(event?.message);
       const sessionKey = sessionKeyOf(event, ctx);
       const childId = childMap.get(sessionKey);
+      const prov = provenanceOf(event);
       await ingestSafe(client, {
         role: "user",
         content,
         external_session_id: sessionKey || undefined,
         agent_path: childId ? `${AGENT}/${childId}` : AGENT,
+        ...prov,
       });
     });
 
@@ -138,11 +159,13 @@ export default definePluginEntry({
       }
       const sessionKey = sessionKeyOf(event, ctx);
       const childId = childMap.get(sessionKey);
+      const prov = provenanceOf(event);
       await ingestSafe(client, {
         role: "assistant",
         content: assistant,
         external_session_id: sessionKey || undefined,
         agent_path: childId ? `${AGENT}/${childId}` : AGENT,
+        ...prov,
       });
     });
 

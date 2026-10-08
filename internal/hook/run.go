@@ -62,7 +62,7 @@ func handleCursor(ctx context.Context, api API, agent string, m map[string]any, 
 		if content == "" {
 			content, _ = stringField(m, "content")
 		}
-		_ = api.Ingest(ctx, ingestBody(agent, agent, "user", content, ext))
+		_ = api.Ingest(ctx, ingestBody(agent, agent, "user", content, ext, m))
 		return writeJSON(out, map[string]any{})
 	case "afterAgentResponse":
 		content, _ := stringField(m, "text")
@@ -72,7 +72,7 @@ func handleCursor(ctx context.Context, api API, agent string, m map[string]any, 
 		if content == "" {
 			content, _ = stringField(m, "content")
 		}
-		_ = api.Ingest(ctx, ingestBody(agent, agent, "assistant", content, ext))
+		_ = api.Ingest(ctx, ingestBody(agent, agent, "assistant", content, ext, m))
 		return writeJSON(out, map[string]any{})
 	case "subagentStop":
 		sub, _ := stringField(m, "subagent_type")
@@ -90,7 +90,7 @@ func handleCursor(ctx context.Context, api API, agent string, m map[string]any, 
 		if content == "" {
 			content, _ = stringField(m, "text")
 		}
-		_ = api.Ingest(ctx, ingestBody(agent, path, "assistant", content, ext))
+		_ = api.Ingest(ctx, ingestBody(agent, path, "assistant", content, ext, m))
 		return writeJSON(out, map[string]any{})
 	case "sessionStart":
 		q := "session start"
@@ -128,7 +128,7 @@ func handleCodex(ctx context.Context, api API, agent string, m map[string]any, o
 		if prompt == "" {
 			prompt, _ = stringField(m, "content")
 		}
-		_ = api.Ingest(ctx, ingestBody(agent, agent, "user", prompt, ext))
+		_ = api.Ingest(ctx, ingestBody(agent, agent, "user", prompt, ext, m))
 		ctxText, _ := api.Recall(ctx, firstNonEmpty(prompt, "session"))
 		return writeJSON(out, map[string]any{
 			"hookSpecificOutput": map[string]any{
@@ -140,7 +140,7 @@ func handleCodex(ctx context.Context, api API, agent string, m map[string]any, o
 		if content == "" {
 			content, _ = stringField(m, "text")
 		}
-		_ = api.Ingest(ctx, ingestBody(agent, agent, "assistant", content, ext))
+		_ = api.Ingest(ctx, ingestBody(agent, agent, "assistant", content, ext, m))
 		return writeJSON(out, map[string]any{})
 	case "SubagentStop":
 		sub, _ := stringField(m, "agent_type")
@@ -155,7 +155,7 @@ func handleCodex(ctx context.Context, api API, agent string, m map[string]any, o
 		if content == "" {
 			content, _ = stringField(m, "summary")
 		}
-		_ = api.Ingest(ctx, ingestBody(agent, path, "assistant", content, ext))
+		_ = api.Ingest(ctx, ingestBody(agent, path, "assistant", content, ext, m))
 		return writeJSON(out, map[string]any{})
 	default:
 		return writeJSON(out, map[string]any{})
@@ -171,17 +171,20 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-func ingestBody(agent, agentPath, role, content, externalSessionID string) map[string]any {
-	empty := []string{}
+func ingestBody(agent, agentPath, role, content, externalSessionID string, event map[string]any) map[string]any {
+	prov := extractProvenance(event)
 	body := map[string]any{
 		"agent":      agent,
 		"agent_path": agentPath,
 		"role":       role,
 		"content":    content,
-		"skills":     empty,
-		"plugins":    empty,
-		"tools":      empty,
-		"model":      "unknown",
+		"skills":     prov.Skills,
+		"plugins":    prov.Plugins,
+		"tools":      prov.Tools,
+		"model":      prov.Model,
+	}
+	if len(prov.Calls) > 0 {
+		body["tool_calls"] = prov.Calls
 	}
 	if externalSessionID != "" {
 		body["external_session_id"] = externalSessionID

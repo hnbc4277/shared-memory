@@ -79,6 +79,7 @@ Cursor 无法可靠地把 hook 返回的 additional_context 注入模型，因�
 4. 子智能体任务：agent_path 使用 ` + "`cursor/<subagent_type>`" + `。
 5. 绝不要在对话或工具参数里打印 API Key、口令或 vault 明文。
 6. 若 memory_recall 失败或超时，正常继续任务，不要卡死。
+7. 控制台「密钥/历史」可查看本会话最近 Recall Receipt；若无成功召回记录，必须先调用 ` + "`memory_recall`" + ` 再继续非琐碎任务。
 `
 	return os.WriteFile(filepath.Join(rulesDir, "shared-memory.mdc"), []byte(rule), 0o644)
 }

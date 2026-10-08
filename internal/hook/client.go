@@ -46,7 +46,7 @@ func (c *HTTPAPI) Recall(ctx context.Context, query string) (string, error) {
 	var out struct {
 		Context string `json:"context"`
 	}
-	if err := c.post(ctx, "/v1/recall", map[string]any{"query": query, "top_k": 8}, &out); err != nil {
+	if err := c.post(ctx, "/v1/recall", map[string]any{"query": query, "top_k": 8, "source": "hook"}, &out); err != nil {
 		return "", err
 	}
 	return out.Context, nil

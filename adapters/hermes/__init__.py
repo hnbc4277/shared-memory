@@ -14,6 +14,35 @@ logger = logging.getLogger(__name__)
 _AGENT = "hermes"
 
 
+def _provenance(kwargs: Dict[str, Any], messages: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    skills = [str(x) for x in (kwargs.get("skills") or []) if str(x).strip()]
+    plugins = [str(x) for x in (kwargs.get("plugins") or []) if str(x).strip()]
+    tools = [str(x) for x in (kwargs.get("tools") or []) if str(x).strip()]
+    model = str(kwargs.get("model") or "").strip() or "unknown"
+    if messages:
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role") or "")
+            name = str(msg.get("name") or msg.get("tool_name") or "").strip()
+            if role in ("tool", "function") and name:
+                if name not in tools:
+                    tools.append(name)
+            for key in ("skills", "plugins", "tools"):
+                raw = msg.get(key)
+                if isinstance(raw, list):
+                    dest = skills if key == "skills" else plugins if key == "plugins" else tools
+                    for x in raw:
+                        s = str(x).strip()
+                        if s and s not in dest:
+                            dest.append(s)
+            if model == "unknown":
+                m = str(msg.get("model") or "").strip()
+                if m:
+                    model = m
+    return {"skills": skills, "plugins": plugins, "tools": tools, "model": model}
+
+
 def _ensure_sdk() -> None:
     """Prefer installed `sharedmemory`; fall back to repo-relative sdk/python."""
     try:
@@ -133,6 +162,8 @@ class SharedMemoryProvider:
         sid = session_id or self._session_id
         client = self._client
 
+        prov = _provenance(kwargs, messages)
+
         def _sync() -> None:
             try:
                 if user_content:
@@ -142,9 +173,10 @@ class SharedMemoryProvider:
                         role="user",
                         content=user_content,
                         external_session_id=sid or None,
-                        skills=[],
-                        plugins=[],
-                        tools=[],
+                        skills=prov["skills"],
+                        plugins=prov["plugins"],
+                        tools=prov["tools"],
+                        model=prov["model"],
                     )
                 if assistant_content:
                     client.ingest(
@@ -153,9 +185,10 @@ class SharedMemoryProvider:
                         role="assistant",
                         content=assistant_content,
                         external_session_id=sid or None,
-                        skills=[],
-                        plugins=[],
-                        tools=[],
+                        skills=prov["skills"],
+                        plugins=prov["plugins"],
+                        tools=prov["tools"],
+                        model=prov["model"],
                     )
             except Exception as e:
                 logger.warning("shared_memory sync_turn failed: %s", e)
@@ -174,6 +207,7 @@ class SharedMemoryProvider:
         )
         path = f"{_AGENT}/{sub}"
         sid = child_session_id or self._session_id
+        prov = _provenance(kwargs, None)
         try:
             if task:
                 self._client.ingest(
@@ -182,9 +216,10 @@ class SharedMemoryProvider:
                     role="user",
                     content=task,
                     external_session_id=sid or None,
-                    skills=[],
-                    plugins=[],
-                    tools=[],
+                    skills=prov["skills"],
+                    plugins=prov["plugins"],
+                    tools=prov["tools"],
+                    model=prov["model"],
                 )
             if result:
                 self._client.ingest(
@@ -193,9 +228,10 @@ class SharedMemoryProvider:
                     role="assistant",
                     content=result,
                     external_session_id=sid or None,
-                    skills=[],
-                    plugins=[],
-                    tools=[],
+                    skills=prov["skills"],
+                    plugins=prov["plugins"],
+                    tools=prov["tools"],
+                    model=prov["model"],
                 )
         except Exception as e:
             logger.warning("shared_memory on_delegation failed: %s", e)
