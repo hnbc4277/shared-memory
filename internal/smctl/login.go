@@ -199,7 +199,6 @@ func Status(ctx context.Context, out io.Writer) error {
 		}
 		_ = json.NewDecoder(res.Body).Decode(&h)
 		fmt.Fprintf(out, "daemon: up spool_pending=%d\n", h.SpoolPending)
-		return nil
 	}
 
 	spoolDir, err := cred.SpoolDir()
@@ -207,7 +206,49 @@ func Status(ctx context.Context, out io.Writer) error {
 		n := countJSONL(spoolDir)
 		fmt.Fprintf(out, "spool_pending (local dir): %d\n", n)
 	}
+
+	if c, err := cred.Resolve(); err == nil && c.APIKey != "" {
+		printProvenanceStats(ctx, out, c.APIURL, c.APIKey)
+	}
 	return nil
+}
+
+func printProvenanceStats(ctx context.Context, out io.Writer, apiURL, apiKey string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiURL, "/")+"/v1/provenance/stats", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	res, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
+	if err != nil {
+		fmt.Fprintf(out, "provenance: unreachable\n")
+		return
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 300 {
+		fmt.Fprintf(out, "provenance: http %s\n", res.Status)
+		return
+	}
+	var body struct {
+		ByAgent []struct {
+			Agent           string  `json:"agent"`
+			Messages        int     `json:"messages"`
+			UnknownModelPct float64 `json:"unknown_model_pct"`
+			EmptySkillsPct  float64 `json:"empty_skills_pct"`
+		} `json:"by_agent"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return
+	}
+	if len(body.ByAgent) == 0 {
+		fmt.Fprintln(out, "provenance: no messages in last 7 days")
+		return
+	}
+	fmt.Fprintln(out, "provenance (7d):")
+	for _, a := range body.ByAgent {
+		fmt.Fprintf(out, "  %s: msgs=%d unknown_model=%.0f%% empty_skills=%.0f%%\n",
+			a.Agent, a.Messages, a.UnknownModelPct*100, a.EmptySkillsPct*100)
+	}
 }
 
 func countJSONL(dir string) int {

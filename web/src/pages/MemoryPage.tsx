@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Memory, RecallResult } from "../api/client";
+import type { EntityAlias, Memory, RecallResult } from "../api/client";
 import { fmtTime, useApp, useLoad } from "../ctx";
 import { Chip, Empty, ErrorLine, Section } from "../ui";
 
@@ -23,6 +23,7 @@ export default function MemoryPage() {
 
   const memories = useLoad(() => api.get<Memory[]>("/v1/memories", { project_id: projectId, kind, limit: 200 }), [api, projectId, kind]);
   const profile = useLoad(() => api.get<{ body: string; updated_at: string }>("/v1/profile"), [api]);
+  const entities = useLoad(() => api.get<EntityAlias[]>("/v1/entities", { project_id: projectId }), [api, projectId]);
 
   async function runRecall() {
     try {
@@ -84,6 +85,21 @@ export default function MemoryPage() {
 
       <Section title="用户画像（全局）" actions={<span className="muted small">由偏好类记忆自动生成 · {fmtTime(profile.data?.updated_at)}</span>}>
         {profile.data?.body ? <pre className="msg-body">{profile.data.body}</pre> : <Empty>尚未形成画像。</Empty>}
+      </Section>
+
+      <Section title="实体别名" actions={<span className="muted small">召回时会把别名展开为规范名</span>}>
+        <ErrorLine error={entities.error} />
+        {entities.data?.length === 0 && <Empty>暂无别名。</Empty>}
+        {!!entities.data?.length && (
+          <table className="table">
+            <thead><tr><th>规范名</th><th>别名</th></tr></thead>
+            <tbody>
+              {entities.data.map((e) => (
+                <tr key={e.id}><td>{e.canonical}</td><td>{e.alias}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </Section>
 
       <Section

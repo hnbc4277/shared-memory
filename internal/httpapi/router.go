@@ -101,6 +101,7 @@ func NewRouter(d Deps) http.Handler {
 	handle("GET /v1/attachments/{id}/thumbnail", r.handleGetAttachmentThumb)
 	handle("GET /v1/quarantine", r.handleListQuarantine)
 	handle("GET /v1/entities", r.handleListEntities)
+	handle("GET /v1/provenance/stats", r.handleProvenanceStats)
 
 	handleRL("POST /v1/recall", "recall", r.handleRecall)
 	handle("GET /v1/recall/receipts", r.handleListRecallReceipts)

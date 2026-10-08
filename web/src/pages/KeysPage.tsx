@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { API_BASE, type APIKeyInfo } from "../api/client";
+import { API_BASE, type APIKeyInfo, type RecallReceipt } from "../api/client";
 import { fmtTime, useApp, useLoad } from "../ctx";
 import { Empty, ErrorLine, Section } from "../ui";
 
@@ -22,6 +22,8 @@ export default function KeysPage() {
   const { api, notify } = useApp();
   const keys = useLoad(() => api.get<APIKeyInfo[]>("/v1/auth/api-keys"), [api]);
   const devices = useLoad(() => api.get<Device[]>("/v1/devices"), [api]);
+  const receipts = useLoad(() => api.get<RecallReceipt[]>("/v1/recall/receipts", { limit: 10 }), [api]);
+  const stats = useLoad(() => api.get<{ by_agent: { agent: string; messages: number; unknown_model_pct: number; empty_skills_pct: number }[] }>("/v1/provenance/stats"), [api]);
   const [name, setName] = useState("");
   const [issued, setIssued] = useState<string | null>(null);
 
@@ -119,8 +121,48 @@ export default function KeysPage() {
         </table>}
       </Section>
 
+      <Section title="最近召回（Receipt）" actions={<span className="muted small">用于确认本会话是否已注入记忆</span>}>
+        <ErrorLine error={receipts.error} />
+        {receipts.data?.length === 0 && <Empty>暂无召回记录。</Empty>}
+        {!!receipts.data?.length && (
+          <table className="table">
+            <thead><tr><th>时间</th><th>来源</th><th>命中</th><th>状态</th></tr></thead>
+            <tbody>
+              {receipts.data.map((r) => (
+                <tr key={r.id}>
+                  <td className="muted">{fmtTime(r.queried_at)}</td>
+                  <td>{r.source}{r.agent ? ` · ${r.agent}` : ""}</td>
+                  <td>{r.hit_count}</td>
+                  <td className="muted small">{r.degraded ? "降级" : "正常"}{r.warnings?.length ? ` · ${r.warnings.join(",")}` : ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      <Section title="溯源采集质量（近 7 天）">
+        <ErrorLine error={stats.error} />
+        {stats.data?.by_agent?.length === 0 && <Empty>暂无消息。</Empty>}
+        {!!stats.data?.by_agent?.length && (
+          <table className="table">
+            <thead><tr><th>智能体</th><th>消息数</th><th>unknown model</th><th>空 skills</th></tr></thead>
+            <tbody>
+              {stats.data.by_agent.map((a) => (
+                <tr key={a.agent || "(empty)"}>
+                  <td>{a.agent || "—"}</td>
+                  <td>{a.messages}</td>
+                  <td>{Math.round(a.unknown_model_pct * 100)}%</td>
+                  <td>{Math.round(a.empty_skills_pct * 100)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
       <Section title="接入智能体（通用 MCP）">
-        <p className="muted small">任何支持 MCP 的智能体都可以用下面的配置接入；SHARED_MEMORY_AGENT 填写该智能体的名字（子智能体在调用时传 agent_path）。也可用 <code>smctl install cursor|codex</code> 一键写入 hooks。</p>
+        <p className="muted small">任何支持 MCP 的智能体都可以用下面的配置接入；SHARED_MEMORY_AGENT 填写该智能体的名字（子智能体在调用时传 agent_path）。也可用 <code>smctl install cursor|codex</code> 一键写入 hooks。Codex 系自动注入；Cursor 依赖 MCP 召回 + Receipt 可证明。</p>
         <pre className="msg-body">{mcpConfig}</pre>
       </Section>
     </div>

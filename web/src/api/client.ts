@@ -78,6 +78,14 @@ export interface Session {
   degraded: boolean;
 }
 
+export interface ToolCall {
+  kind: string;
+  name: string;
+  started_at?: string;
+  ended_at?: string;
+  output?: string;
+}
+
 export interface Message {
   id: string;
   seq: number;
@@ -87,11 +95,30 @@ export interface Message {
   skills: string[];
   plugins: string[];
   tools: string[];
+  tool_calls?: ToolCall[];
   model: string;
   content: string | null;
   content_stored: boolean;
   attachment_ids: string[];
   created_at: string;
+}
+
+export interface EntityAlias {
+  id: string;
+  project_id: string | null;
+  canonical: string;
+  alias: string;
+}
+
+export interface RecallReceipt {
+  id: string;
+  queried_at: string;
+  hit_count: number;
+  degraded: boolean;
+  source: string;
+  warnings?: string[];
+  agent?: string;
+  query_preview?: string;
 }
 
 export interface Memory {

@@ -8,6 +8,13 @@ import (
 	"sharedmemory/internal/attachment"
 )
 
+type provenanceStat struct {
+	Agent            string  `json:"agent"`
+	Messages         int     `json:"messages"`
+	UnknownModelPct  float64 `json:"unknown_model_pct"`
+	EmptySkillsPct   float64 `json:"empty_skills_pct"`
+}
+
 type loginReq struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -86,4 +93,35 @@ func (r *Router) handleListEntities(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (r *Router) handleProvenanceStats(w http.ResponseWriter, req *http.Request) {
+	rows, err := r.Pool.Query(req.Context(), `
+		SELECT COALESCE(agent, ''),
+		       COUNT(*)::int,
+		       AVG(CASE WHEN COALESCE(model, '') IN ('', 'unknown') THEN 1.0 ELSE 0.0 END)::float8,
+		       AVG(CASE WHEN COALESCE(skills, '[]'::jsonb) = '[]'::jsonb THEN 1.0 ELSE 0.0 END)::float8
+		FROM messages
+		WHERE account_id = $1 AND created_at > now() - interval '7 days'
+		GROUP BY agent
+		ORDER BY COUNT(*) DESC`, accountOf(req))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	defer rows.Close()
+	out := []provenanceStat{}
+	for rows.Next() {
+		var s provenanceStat
+		if err := rows.Scan(&s.Agent, &s.Messages, &s.UnknownModelPct, &s.EmptySkillsPct); err != nil {
+			fail(w, err)
+			return
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"by_agent": out})
 }

@@ -2,6 +2,37 @@ import type { Policy } from "../api/client";
 import { fmtTime, useApp, useLoad } from "../ctx";
 import { Empty, ErrorLine, Section, Toggle } from "../ui";
 
+function QuarantineList() {
+  const { api, notify } = useApp();
+  const list = useLoad(() => api.get<{ id: string; agent: string; reason: string; payload: unknown; created_at: string }[]>("/v1/quarantine", { limit: 50 }), [api]);
+  return (
+    <>
+      <ErrorLine error={list.error} />
+      {list.data?.length === 0 && <Empty>暂无隔离记录。</Empty>}
+      {!!list.data?.length && (
+        <table className="table">
+          <thead><tr><th>时间</th><th>智能体</th><th>原因</th><th /></tr></thead>
+          <tbody>
+            {list.data.map((e) => (
+              <tr key={e.id}>
+                <td className="muted">{fmtTime(e.created_at)}</td>
+                <td>{e.agent || "—"}</td>
+                <td className="small">{e.reason}</td>
+                <td>
+                  <button className="small" onClick={() => {
+                    void navigator.clipboard.writeText(JSON.stringify(e.payload, null, 2));
+                    notify("已复制 payload");
+                  }}>复制 payload</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 const TOGGLES: { key: keyof Policy; label: string; hint: string }[] = [
   { key: "store_transcript", label: "保存聊天原文", hint: "关闭后只记录溯源信息（智能体、技能、插件、时间），不保存正文" },
   { key: "store_attachments", label: "保存附件文件", hint: "关闭后附件只保留文件名、类型、大小等元数据" },
@@ -58,6 +89,10 @@ export default function SettingsPage() {
             </label>
           )}
         </div>
+      </Section>
+
+      <Section title="隔离区（不合格上报）" actions={<span className="muted small">仅审计；请在客户端补全字段后重新发送</span>}>
+        <QuarantineList />
       </Section>
 
       <Section title="审计日志" actions={<span className="muted small">凭证查看、同意、删除等敏感操作</span>}>
