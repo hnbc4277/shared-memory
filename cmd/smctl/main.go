@@ -58,11 +58,31 @@ func main() {
 				fail(err)
 			}
 			fmt.Println("installed Cursor hooks, MCP snippet, and ~/.cursor/rules/shared-memory.mdc")
+			fmt.Println("note: Cursor injection is MCP+rules (Receipt-visible); not silent hook inject")
 		case "codex":
 			if err := smctl.InstallCodex(smhook, mcp); err != nil {
 				fail(err)
 			}
 			fmt.Println("installed Codex hooks and shared-memory-mcp.json")
+			fmt.Println("note: Codex auto-injects via additionalContext")
+		case "hermes":
+			dst, err := smctl.InstallHermes()
+			if err != nil {
+				fail(err)
+			}
+			fmt.Printf("installed Hermes plugin → %s (see INSTALL.txt)\n", dst)
+		case "openclaw", "xiaolongxia":
+			dst, err := smctl.InstallOpenClaw()
+			if err != nil {
+				fail(err)
+			}
+			fmt.Printf("installed OpenClaw kit → %s (see INSTALL.txt)\n", dst)
+		case "deepseek-harness", "deepseek":
+			dst, err := smctl.InstallDeepSeek()
+			if err != nil {
+				fail(err)
+			}
+			fmt.Printf("installed DeepSeek Harness kit → %s (see INSTALL.txt)\n", dst)
 		default:
 			usage()
 			os.Exit(2)
@@ -95,8 +115,16 @@ Usage:
   smctl login [--api-url URL] [--client-name NAME] [--agent AGENT]
   smctl install cursor [--smhook PATH] [--mcp PATH]
   smctl install codex [--smhook PATH] [--mcp PATH]
+  smctl install hermes
+  smctl install openclaw|xiaolongxia
+  smctl install deepseek-harness|deepseek
   smctl status
   smctl logout [--revoke]
+
+Injection model (A+B):
+  Codex / DeepSeek-Harness — automatic additionalContext
+  Hermes / OpenClaw       — automatic prefetch/prependContext
+  Cursor                  — MCP memory_recall + rules; check Recall Receipts
 `)
 }
 

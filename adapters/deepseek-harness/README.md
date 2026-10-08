@@ -1,41 +1,44 @@
 # Shared Memory — DeepSeek Harness Adapter
 
-Thin config package: reuse **Codex-dialect hooks** (`smhook`) plus **MCP** (`shared-memory-mcp`) inside DeepSeek Harness via Cordis plugins.
+薄配置包：在 DeepSeek Harness 内复用 **Codex 方言 hooks**（`smhook`）+ **MCP**（`shared-memory-mcp`）。
 
-## Files
-
-| File | Purpose |
-|------|---------|
-| `cordis.yml.example` | Registers `@deepseek-ai/dsh-mcp-client` → `shared-memory-mcp` and `@deepseek-ai/dsh-hooks-codex` → `hooks.json` |
-| `hooks.json.example` | Codex-shaped hook commands invoking `smhook` with `SHARED_MEMORY_HOOK_SURFACE=codex` |
-
-## Setup
-
-1. Build/install binaries so `shared-memory-mcp` and `smhook` are on `PATH` (or edit absolute paths in the examples).
-
-2. Copy examples into your harness project:
+## 一键安装（推荐）
 
 ```bash
-cp cordis.yml.example /path/to/project/cordis.yml   # or merge the plugins: block
-cp hooks.json.example /path/to/project/hooks.json
+smctl login
+smctl install deepseek-harness
 ```
 
-3. Environment:
+生成目录 `~/.shared-memory/deepseek-harness/`：
+
+| 文件 | 作用 |
+|------|------|
+| `hooks.json` | Codex 形 hook → `smhook`，`SHARED_MEMORY_AGENT=deepseek-harness` |
+| `cordis.snippet.yml` | 合并进项目 `cordis.yml` |
+| `INSTALL.txt` | 后续步骤与环境变量模板 |
+
+将 snippet 中的 `plugins:` 并入 harness 项目的 `cordis.yml`，确保 `smhook` / `shared-memory-mcp` 在 PATH（或改绝对路径）。
+
+## 手动安装
+
+```bash
+cp adapters/deepseek-harness/cordis.yml.example /path/to/project/cordis.yml
+cp adapters/deepseek-harness/hooks.json.example /path/to/project/hooks.json
+```
 
 ```bash
 export SHARED_MEMORY_API_KEY=sm_...
 export SHARED_MEMORY_API_URL=http://127.0.0.1:18765
 ```
 
-4. Start DeepSeek Harness with that `cordis.yml`.
+## Agent 命名
 
-## Agent naming
+规格 `agent=deepseek-harness`。`smhook` 通过环境变量 `SHARED_MEMORY_AGENT` 覆盖上报名（hooks 已设置）；MCP 工具与 agent 无关。
 
-Spec agent id is `deepseek-harness`. The example hooks set `SHARED_MEMORY_AGENT=deepseek-harness` for when `smhook` honors that override. Until then, Codex-surface hooks still tag ingest as `agent=codex` (same protocol); MCP tools are agent-agnostic.
-
-## Behavior
+## 行为（A+B）
 
 | Path | Role |
 |------|------|
-| `dsh-hooks-codex` + `smhook` | Auto ingest + Codex-style `additionalContext` recall |
-| `dsh-mcp-client` + `shared-memory-mcp` | Model-callable `memory_recall` / related tools |
+| `dsh-hooks-codex` + `smhook` | **自动注入** `additionalContext` + ingest |
+| `dsh-mcp-client` + MCP | 模型可调用 `memory_recall` 等 |
+| Receipt | 控制台「密钥」页可审计是否已召回 |

@@ -162,7 +162,11 @@ export default function KeysPage() {
       </Section>
 
       <Section title="接入智能体（通用 MCP）">
-        <p className="muted small">任何支持 MCP 的智能体都可以用下面的配置接入；SHARED_MEMORY_AGENT 填写该智能体的名字（子智能体在调用时传 agent_path）。也可用 <code>smctl install cursor|codex</code> 一键写入 hooks。Codex 系自动注入；Cursor 依赖 MCP 召回 + Receipt 可证明。</p>
+        <p className="muted small">
+          一键安装：<code>smctl install cursor|codex|hermes|openclaw|deepseek-harness</code>。
+          Codex / DeepSeek / Hermes / OpenClaw 尽量自动注入；Cursor 用 MCP 召回 + 上方 Receipt 可证明。
+          通用 MCP 也可手写配置（SHARED_MEMORY_AGENT 填智能体名）。
+        </p>
         <pre className="msg-body">{mcpConfig}</pre>
       </Section>
     </div>
