@@ -126,7 +126,7 @@ func (r *Router) wsRecall(ctx context.Context, conn *websocket.Conn, accountID u
 		_ = wsjson.Write(ctx, conn, map[string]any{"type": "error", "error": "query required"})
 		return
 	}
-	reqBody := recall.Request{Query: query, TopK: 8}
+	reqBody := recall.Request{Query: query, TopK: 8, Source: "ws"}
 	if p := strAny(msg["project_id"]); p != "" {
 		id, err := uuid.Parse(p)
 		if err != nil {

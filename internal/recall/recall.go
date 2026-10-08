@@ -26,9 +26,14 @@ const (
 )
 
 type Request struct {
-	Query     string     `json:"query"`
-	ProjectID *uuid.UUID `json:"project_id"`
-	TopK      int        `json:"top_k"`
+	Query             string     `json:"query"`
+	ProjectID         *uuid.UUID `json:"project_id"`
+	TopK              int        `json:"top_k"`
+	SessionID         *uuid.UUID `json:"session_id,omitempty"`
+	ExternalSessionID string     `json:"external_session_id,omitempty"`
+	Agent             string     `json:"agent,omitempty"`
+	AgentPath         string     `json:"agent_path,omitempty"`
+	Source            string     `json:"source,omitempty"`
 }
 
 type Item struct {
@@ -45,12 +50,13 @@ type Item struct {
 }
 
 type Result struct {
-	Profile        string   `json:"profile"`
-	RunningSummary string   `json:"running_summary"`
-	Hits           []Item   `json:"hits"`
-	Context        string   `json:"context"`
-	InjectEnabled  bool     `json:"inject_enabled"`
-	Warnings       []string `json:"warnings"`
+	Profile        string    `json:"profile"`
+	RunningSummary string    `json:"running_summary"`
+	Hits           []Item    `json:"hits"`
+	Context        string    `json:"context"`
+	InjectEnabled  bool      `json:"inject_enabled"`
+	Warnings       []string  `json:"warnings"`
+	ReceiptID      uuid.UUID `json:"receipt_id,omitempty"`
 }
 
 // Service never reads vault tables: secrets are not part of any recall path.
@@ -127,6 +133,11 @@ func (s *Service) Recall(ctx context.Context, accountID uuid.UUID, req Request) 
 	}
 	if pol.InjectEnabled {
 		res.Context = format(res)
+	}
+	if id, err := s.recordReceipt(ctx, accountID, req, res); err != nil {
+		log.Printf("recall receipt: %v", err)
+	} else {
+		res.ReceiptID = id
 	}
 	return res, nil
 }

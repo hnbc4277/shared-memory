@@ -14,6 +14,9 @@ func (r *Router) handleRecall(w http.ResponseWriter, req *http.Request) {
 	if !decode(w, req, &body) {
 		return
 	}
+	if body.Source == "" {
+		body.Source = "http"
+	}
 	if body.ProjectID != nil {
 		if _, err := r.Projects.Get(req.Context(), accountOf(req), *body.ProjectID); err != nil {
 			fail(w, err)
@@ -26,6 +29,25 @@ func (r *Router) handleRecall(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (r *Router) handleListRecallReceipts(w http.ResponseWriter, req *http.Request) {
+	q := req.URL.Query()
+	sessionID, ok := optionalUUID(w, q.Get("session_id"), "session_id")
+	if !ok {
+		return
+	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	list, err := r.Recall.ListReceipts(req.Context(), accountOf(req), recall.ReceiptFilter{
+		SessionID:         sessionID,
+		ExternalSessionID: q.Get("external_session_id"),
+		Limit:             limit,
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 
 func (r *Router) handleListMemories(w http.ResponseWriter, req *http.Request) {

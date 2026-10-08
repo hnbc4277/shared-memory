@@ -103,6 +103,7 @@ func NewRouter(d Deps) http.Handler {
 	handle("GET /v1/entities", r.handleListEntities)
 
 	handleRL("POST /v1/recall", "recall", r.handleRecall)
+	handle("GET /v1/recall/receipts", r.handleListRecallReceipts)
 	handle("GET /v1/memories", r.handleListMemories)
 	handle("PUT /v1/memories/{id}", r.handleSupersedeMemory)
 	handle("DELETE /v1/memories/{id}", r.handleInvalidateMemory)
