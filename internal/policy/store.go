@@ -15,6 +15,7 @@ type Policy struct {
 	VaultEnabled        bool `json:"vault_enabled"`
 	ArtifactSearchable  bool `json:"artifact_searchable"`
 	CloudVisionEnabled  bool `json:"cloud_vision_enabled"`
+	KBInjectEnabled     bool `json:"kb_inject_enabled"`
 	RetentionDays       int  `json:"retention_days"`
 }
 
@@ -26,6 +27,7 @@ func Default() Policy {
 		VaultEnabled:       true,
 		ArtifactSearchable: true,
 		CloudVisionEnabled: true,
+		KBInjectEnabled:    true,
 	}
 }
 
@@ -43,10 +45,12 @@ func (s *Store) Get(ctx context.Context, accountID uuid.UUID) (Policy, error) {
 		INSERT INTO account_policies (account_id) VALUES ($1)
 		ON CONFLICT (account_id) DO UPDATE SET account_id = EXCLUDED.account_id
 		RETURNING store_transcript, store_attachments, inject_enabled,
-		          vault_enabled, artifact_searchable, cloud_vision_enabled, retention_days`,
+		          vault_enabled, artifact_searchable, cloud_vision_enabled,
+		          kb_inject_enabled, retention_days`,
 		accountID,
 	).Scan(&p.StoreTranscript, &p.StoreAttachments, &p.InjectEnabled,
-		&p.VaultEnabled, &p.ArtifactSearchable, &p.CloudVisionEnabled, &p.RetentionDays)
+		&p.VaultEnabled, &p.ArtifactSearchable, &p.CloudVisionEnabled,
+		&p.KBInjectEnabled, &p.RetentionDays)
 	if err != nil {
 		return Policy{}, fmt.Errorf("get policy: %w", err)
 	}
@@ -59,8 +63,9 @@ func (s *Store) Update(ctx context.Context, accountID uuid.UUID, p Policy) error
 	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO account_policies (account_id, store_transcript, store_attachments,
-			inject_enabled, vault_enabled, artifact_searchable, cloud_vision_enabled, retention_days)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			inject_enabled, vault_enabled, artifact_searchable, cloud_vision_enabled,
+			kb_inject_enabled, retention_days)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (account_id) DO UPDATE SET
 			store_transcript = EXCLUDED.store_transcript,
 			store_attachments = EXCLUDED.store_attachments,
@@ -68,9 +73,11 @@ func (s *Store) Update(ctx context.Context, accountID uuid.UUID, p Policy) error
 			vault_enabled = EXCLUDED.vault_enabled,
 			artifact_searchable = EXCLUDED.artifact_searchable,
 			cloud_vision_enabled = EXCLUDED.cloud_vision_enabled,
+			kb_inject_enabled = EXCLUDED.kb_inject_enabled,
 			retention_days = EXCLUDED.retention_days`,
 		accountID, p.StoreTranscript, p.StoreAttachments, p.InjectEnabled,
-		p.VaultEnabled, p.ArtifactSearchable, p.CloudVisionEnabled, p.RetentionDays,
+		p.VaultEnabled, p.ArtifactSearchable, p.CloudVisionEnabled, p.KBInjectEnabled,
+		p.RetentionDays,
 	)
 	if err != nil {
 		return fmt.Errorf("update policy: %w", err)

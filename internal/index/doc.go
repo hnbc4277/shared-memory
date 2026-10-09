@@ -10,6 +10,7 @@ import (
 const (
 	DocMemory   = "memory"
 	DocArtifact = "artifact"
+	DocKBChunk  = "kb_chunk"
 )
 
 // Doc is the projection written to both search engines. It never carries
