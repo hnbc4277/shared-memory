@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"sharedmemory/internal/index"
 	"sharedmemory/internal/kb"
 	"sharedmemory/internal/objectstore"
 	"sharedmemory/internal/queue"
@@ -118,3 +120,140 @@ func TestStore_AddUpload_UnsupportedMIME(t *testing.T) {
 		t.Fatal("expected unsupported")
 	}
 }
+
+func TestStore_SetStatusAndReplaceChunks(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestPool(t)
+	acct := testutil.NewAccount(t, pool)
+	objects := objectstore.NewMemory()
+	idx := &recordingIndex{}
+	store := kb.NewStore(pool, objects, &queue.Recorder{}, &index.Service{Text: idx})
+
+	doc, err := store.AddUpload(ctx, acct, kb.AddUploadInput{
+		Title: "Guide",
+		MIME:  "text/markdown",
+		Name:  "guide.md",
+		Body:  []byte("# hello\n\nchunk body " + uuid.NewString()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetStatus(ctx, acct, doc.ID, kb.StatusFailed, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Get(ctx, acct, doc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != kb.StatusFailed || got.Error != "boom" {
+		t.Fatalf("status=%q error=%q", got.Status, got.Error)
+	}
+
+	chunks := []kb.Chunk{
+		{Ordinal: 0, Body: "first paragraph"},
+		{Ordinal: 1, Body: "second paragraph"},
+	}
+	if err := store.ReplaceChunks(ctx, acct, doc.ID, chunks); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.Get(ctx, acct, doc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != kb.StatusReady || got.Error != "" {
+		t.Fatalf("after replace status=%q error=%q", got.Status, got.Error)
+	}
+	ids := listChunkIDs(t, pool, acct, doc.ID)
+	stored, err := store.GetManyChunks(ctx, acct, ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 2 {
+		t.Fatalf("chunks = %d, want 2", len(stored))
+	}
+	if len(idx.docs) != 2 {
+		t.Fatalf("indexed = %d, want 2", len(idx.docs))
+	}
+	for _, d := range idx.docs {
+		if d.DocType != index.DocKBChunk {
+			t.Fatalf("doc_type = %q", d.DocType)
+		}
+		if d.ProjectID != nil {
+			t.Fatal("project_id must be nil")
+		}
+		if d.Kind != "Guide" {
+			t.Fatalf("kind (title) = %q", d.Kind)
+		}
+		if d.AccountID != acct {
+			t.Fatalf("account = %s", d.AccountID)
+		}
+	}
+
+	if err := store.ReplaceChunks(ctx, acct, doc.ID, []kb.Chunk{{Ordinal: 0, Body: "only one"}}); err != nil {
+		t.Fatal(err)
+	}
+	ids = listChunkIDs(t, pool, acct, doc.ID)
+	stored, err = store.GetManyChunks(ctx, acct, ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 1 || stored[0].Body != "only one" {
+		t.Fatalf("replaced chunks = %+v", stored)
+	}
+	if len(idx.docs) != 1 {
+		t.Fatalf("after replace indexed = %d, want 1", len(idx.docs))
+	}
+}
+
+func listChunkIDs(t *testing.T, pool *pgxpool.Pool, acct, docID uuid.UUID) []uuid.UUID {
+	t.Helper()
+	rows, err := pool.Query(context.Background(),
+		`SELECT id FROM kb_chunks WHERE account_id = $1 AND document_id = $2 ORDER BY ordinal`,
+		acct, docID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return ids
+}
+
+// recordingIndex is a TextIndex that records Index/Delete for assertions.
+type recordingIndex struct {
+	docs []index.Doc
+}
+
+func (r *recordingIndex) Ensure(context.Context) error { return nil }
+
+func (r *recordingIndex) Index(_ context.Context, d index.Doc) error {
+	r.docs = append(r.docs, d)
+	return nil
+}
+
+func (r *recordingIndex) Search(context.Context, index.Query) ([]index.Hit, error) {
+	return nil, nil
+}
+
+func (r *recordingIndex) Delete(_ context.Context, _, id uuid.UUID) error {
+	out := r.docs[:0]
+	for _, d := range r.docs {
+		if d.ID != id {
+			out = append(out, d)
+		}
+	}
+	r.docs = out
+	return nil
+}
+
+func (r *recordingIndex) DeleteProject(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+func (r *recordingIndex) DeleteAccount(context.Context, uuid.UUID) error           { return nil }

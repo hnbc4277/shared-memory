@@ -18,6 +18,7 @@ import (
 	"sharedmemory/internal/device"
 	"sharedmemory/internal/entity"
 	"sharedmemory/internal/index"
+	"sharedmemory/internal/kb"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/policy"
 	"sharedmemory/internal/project"
@@ -45,6 +46,7 @@ type Deps struct {
 	Devices     *device.Store
 	Quarantine  *quarantine.Store
 	Entities    *entity.Store
+	KB          *kb.Store
 	RateLimit   *ratelimit.Limiter
 	CORSOrigins []string
 }
@@ -100,11 +102,13 @@ func NewRouter(d Deps) http.Handler {
 	handle("GET /v1/attachments/{id}", r.handleGetAttachment)
 	handle("GET /v1/attachments/{id}/thumbnail", r.handleGetAttachmentThumb)
 	handle("GET /v1/quarantine", r.handleListQuarantine)
+	handle("POST /v1/quarantine/{id}/replay", r.handleReplayQuarantine)
 	handle("GET /v1/entities", r.handleListEntities)
 	handle("GET /v1/provenance/stats", r.handleProvenanceStats)
 
 	handleRL("POST /v1/recall", "recall", r.handleRecall)
 	handle("GET /v1/recall/receipts", r.handleListRecallReceipts)
+	handle("GET /v1/recall/receipts/check", r.handleCheckRecallReceipt)
 	handle("GET /v1/memories", r.handleListMemories)
 	handle("PUT /v1/memories/{id}", r.handleSupersedeMemory)
 	handle("DELETE /v1/memories/{id}", r.handleInvalidateMemory)

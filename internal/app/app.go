@@ -23,6 +23,7 @@ import (
 	"sharedmemory/internal/entity"
 	"sharedmemory/internal/httpapi"
 	"sharedmemory/internal/index"
+	"sharedmemory/internal/kb"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/objectstore"
 	"sharedmemory/internal/policy"
@@ -111,6 +112,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	log.Printf("vector collection %s (dim %d, min score %.2f)", collection, embedder.Dim(), minScore)
 	a.Memories = memory.NewStore(pool, a.Index)
+	kbStore := kb.NewStore(pool, objects, a.Streams, a.Index)
 
 	authStore := auth.NewStore(pool)
 	projects := project.NewStore(pool)
@@ -136,6 +138,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Devices:     device.NewStore(pool, authStore),
 		Quarantine:  &quarantine.Store{Pool: pool},
 		Entities:    entities,
+		KB:          kbStore,
 		RateLimit:   &ratelimit.Limiter{Redis: a.Redis, Limit: 120, Window: time.Minute},
 		CORSOrigins: cfg.CORSOrigins,
 	}
@@ -150,7 +153,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		log.Printf("vision describer enabled (%s)", cfg.VisionModel)
 	}
 	a.Worker = &worker.Handler{Pool: pool, Objects: objects, Memories: a.Memories,
-		Deriver: deriver, Extractor: extractor, Entities: entities, Policies: policies}
+		Deriver: deriver, Extractor: extractor, Entities: entities, Policies: policies, KB: kbStore}
 	a.Reindexer = &reindex.Reindexer{Pool: pool, Index: a.Index, Memories: a.Memories, Artifacts: artifacts,
 		Collection: collection}
 	return a, nil

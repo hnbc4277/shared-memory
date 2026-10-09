@@ -14,6 +14,7 @@ import (
 
 	"sharedmemory/internal/attachment"
 	"sharedmemory/internal/entity"
+	"sharedmemory/internal/kb"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/objectstore"
 	"sharedmemory/internal/policy"
@@ -52,6 +53,7 @@ type Handler struct {
 	Extractor Extractor
 	Entities  *entity.Store
 	Policies  *policy.Store
+	KB        *kb.Store
 }
 
 func (h *Handler) Handle(ctx context.Context, job queue.Job) error {
@@ -60,6 +62,8 @@ func (h *Handler) Handle(ctx context.Context, job queue.Job) error {
 		return h.handleMessage(ctx, job)
 	case queue.JobAttachment:
 		return h.handleAttachment(ctx, job)
+	case queue.JobKBParse:
+		return h.handleKBParse(ctx, job)
 	default:
 		return fmt.Errorf("unknown job type %q", job.Type)
 	}

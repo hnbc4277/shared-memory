@@ -10,6 +10,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -226,6 +227,115 @@ func (s *Store) GetManyChunks(ctx context.Context, accountID uuid.UUID, ids []uu
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) SetStatus(ctx context.Context, accountID, docID uuid.UUID, status, errMsg string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE kb_documents
+		SET status = $1, error = $2, updated_at = now()
+		WHERE id = $3 AND account_id = $4`, status, errMsg, docID, accountID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ReplaceChunks deletes prior chunks (and index entries), inserts the new set,
+// indexes each as DocKBChunk with Kind=document title, and marks the doc ready.
+func (s *Store) ReplaceChunks(ctx context.Context, accountID, docID uuid.UUID, chunks []Chunk) error {
+	doc, err := s.Get(ctx, accountID, docID)
+	if err != nil {
+		return err
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id FROM kb_chunks WHERE document_id = $1 AND account_id = $2`, docID, accountID)
+	if err != nil {
+		return err
+	}
+	var oldIDs []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		oldIDs = append(oldIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM kb_chunks WHERE document_id = $1 AND account_id = $2`, docID, accountID); err != nil {
+		return err
+	}
+
+	saved := make([]Chunk, 0, len(chunks))
+	for i, c := range chunks {
+		id := c.ID
+		if id == uuid.Nil {
+			id = uuid.New()
+		}
+		ord := c.Ordinal
+		if ord == 0 && i > 0 {
+			ord = i
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO kb_chunks (id, document_id, account_id, ordinal, body, char_start, char_end)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			id, docID, accountID, ord, c.Body, c.CharStart, c.CharEnd)
+		if err != nil {
+			return err
+		}
+		saved = append(saved, Chunk{
+			ID: id, DocumentID: docID, Ordinal: ord, Body: c.Body,
+			CharStart: c.CharStart, CharEnd: c.CharEnd,
+		})
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE kb_documents
+		SET status = $1, error = '', updated_at = now()
+		WHERE id = $2 AND account_id = $3`, StatusReady, docID, accountID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	for _, id := range oldIDs {
+		s.unproject(ctx, accountID, id)
+	}
+	now := time.Now().UTC()
+	for _, c := range saved {
+		s.projectChunk(ctx, accountID, doc.Title, c, now)
+	}
+	return nil
+}
+
+func (s *Store) projectChunk(ctx context.Context, accountID uuid.UUID, title string, c Chunk, at time.Time) {
+	if s.index == nil {
+		return
+	}
+	if err := s.index.IndexDoc(ctx, index.Doc{
+		ID:        c.ID,
+		DocType:   index.DocKBChunk,
+		AccountID: accountID,
+		ProjectID: nil,
+		Kind:      title,
+		Body:      c.Body,
+		CreatedAt: at,
+	}); err != nil {
+		log.Printf("kb index chunk %s: %v", c.ID, err)
+	}
 }
 
 func (s *Store) unproject(ctx context.Context, accountID, chunkID uuid.UUID) {
