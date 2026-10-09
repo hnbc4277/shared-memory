@@ -10,6 +10,7 @@ import (
 const (
 	JobMessage    = "message_process"
 	JobAttachment = "attachment_process"
+	JobKBParse    = "kb_parse"
 )
 
 // Job carries redacted message content transiently, so semantic derivation
@@ -21,6 +22,7 @@ type Job struct {
 	SessionID    uuid.UUID  `json:"session_id,omitempty"`
 	MessageID    uuid.UUID  `json:"message_id,omitempty"`
 	AttachmentID uuid.UUID  `json:"attachment_id,omitempty"`
+	DocumentID   uuid.UUID  `json:"document_id,omitempty"`
 	Role         string     `json:"role,omitempty"`
 	AgentPath    string     `json:"agent_path,omitempty"`
 	Content      string     `json:"content,omitempty"`
