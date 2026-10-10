@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 
@@ -199,6 +200,85 @@ func TestKB_PromoteArtifactJSON(t *testing.T) {
 	}
 	if created.Document.SourceType != kb.SourceArtifact {
 		t.Fatalf("source = %q", created.Document.SourceType)
+	}
+}
+
+func TestKB_PromoteOtherAccountArtifact_NotFound(t *testing.T) {
+	srv, _, key, _, arts, _ := kbTestServer(t)
+	ctx := context.Background()
+	other := testutil.NewAccount(t, testutil.TestPool(t))
+	detail, err := arts.Create(ctx, other, artifact.Input{
+		Title: "Not yours",
+		Type:  "doc",
+		Body:  "# private\n\n" + uuid.NewString(),
+	}, artifact.Source{AgentPath: "user/manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload, _ := json.Marshal(map[string]any{"artifact_id": detail.Artifact.ID.String()})
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/kb/documents", bytes.NewReader(payload))
+	kbAuth(req, key)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status=%d body=%s, want 404", res.StatusCode, b)
+	}
+}
+
+func TestKB_PromoteBothIDs_BadRequest(t *testing.T) {
+	srv, _, key, _, _, _ := kbTestServer(t)
+	payload, _ := json.Marshal(map[string]any{
+		"artifact_id":   uuid.NewString(),
+		"attachment_id": uuid.NewString(),
+	})
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/kb/documents", bytes.NewReader(payload))
+	kbAuth(req, key)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status=%d body=%s, want 400", res.StatusCode, b)
+	}
+}
+
+func TestKB_UploadUnsupportedMIME(t *testing.T) {
+	srv, _, key, _, _, _ := kbTestServer(t)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", `form-data; name="file"; filename="pic.png"`)
+	h.Set("Content-Type", "image/png")
+	part, err := mw.CreatePart(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("\x89PNG\r\n\x1a\nfake")); err != nil {
+		t.Fatal(err)
+	}
+	_ = mw.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/kb/documents", &buf)
+	kbAuth(req, key)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnsupportedMediaType {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status=%d body=%s, want 415", res.StatusCode, b)
 	}
 }
 

@@ -3,6 +3,7 @@ package kb_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -73,8 +74,8 @@ func TestStore_AddFromArtifact(t *testing.T) {
 
 	// Cross-account isolation.
 	other := testutil.NewAccount(t, pool)
-	if _, err := store.AddFromArtifact(ctx, other, detail.Artifact.ID); err == nil {
-		t.Fatal("expected not found for other account")
+	if _, err := store.AddFromArtifact(ctx, other, detail.Artifact.ID); !errors.Is(err, kb.ErrNotFound) {
+		t.Fatalf("other account err = %v, want kb.ErrNotFound", err)
 	}
 }
 
@@ -124,6 +125,12 @@ func TestStore_AddFromAttachment_DerivedText(t *testing.T) {
 	_ = rc.Close()
 	if string(got) != text {
 		t.Fatalf("body = %q, want derived text", got)
+	}
+
+	// Cross-account isolation.
+	other := testutil.NewAccount(t, pool)
+	if _, err := store.AddFromAttachment(ctx, other, a.ID); !errors.Is(err, kb.ErrNotFound) {
+		t.Fatalf("other account err = %v, want kb.ErrNotFound", err)
 	}
 }
 
