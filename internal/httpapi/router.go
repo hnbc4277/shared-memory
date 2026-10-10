@@ -135,6 +135,12 @@ func NewRouter(d Deps) http.Handler {
 	handle("PUT /v1/artifacts/{id}", r.handleUpdateArtifact)
 	handle("DELETE /v1/artifacts/{id}", r.handleDeleteArtifact)
 
+	handle("POST /v1/kb/documents", r.handleCreateKBDocument)
+	handle("GET /v1/kb/documents", r.handleListKBDocuments)
+	handle("GET /v1/kb/documents/{id}", r.handleGetKBDocument)
+	handle("DELETE /v1/kb/documents/{id}", r.handleDeleteKBDocument)
+	handle("POST /v1/kb/documents/{id}/reparse", r.handleReparseKBDocument)
+
 	return CORS(d.CORSOrigins)(mux)
 }
 
@@ -160,11 +166,11 @@ func fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, session.ErrNotFound), errors.Is(err, project.ErrNotFound),
 		errors.Is(err, vault.ErrNotFound), errors.Is(err, artifact.ErrNotFound),
 		errors.Is(err, memory.ErrNotFound), errors.Is(err, attachment.ErrNotFound),
-		errors.Is(err, account.ErrNotFound):
+		errors.Is(err, account.ErrNotFound), errors.Is(err, kb.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, attachment.ErrUnsupportedType):
+	case errors.Is(err, attachment.ErrUnsupportedType), errors.Is(err, kb.ErrUnsupportedType):
 		writeError(w, http.StatusUnsupportedMediaType, err.Error())
-	case errors.Is(err, attachment.ErrTooLarge):
+	case errors.Is(err, attachment.ErrTooLarge), errors.Is(err, kb.ErrTooLarge):
 		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, attachment.ErrNotStored):
 		writeError(w, http.StatusGone, err.Error())

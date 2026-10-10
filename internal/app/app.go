@@ -112,13 +112,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	log.Printf("vector collection %s (dim %d, min score %.2f)", collection, embedder.Dim(), minScore)
 	a.Memories = memory.NewStore(pool, a.Index)
-	kbStore := kb.NewStore(pool, objects, a.Streams, a.Index)
 
 	authStore := auth.NewStore(pool)
 	projects := project.NewStore(pool)
 	policies := policy.NewStore(pool)
 	vaults := vault.NewStore(pool, cipher)
 	artifacts := artifact.NewStore(pool, objects)
+	attachments := &attachment.Service{Pool: pool, Objects: objects, Policies: policies, Projects: projects, Queue: a.Streams}
+	kbStore := kb.NewStore(pool, objects, a.Streams, a.Index).WithSources(artifacts, attachments)
 	entities := &entity.Store{Pool: pool}
 	a.Deps = httpapi.Deps{
 		Pool:     pool,
@@ -127,7 +128,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Policies: policies,
 		Sessions: &session.Service{Pool: pool, Objects: objects, Queue: a.Streams, Policies: policies,
 			Projects: projects, Vault: vaults, Artifacts: artifacts},
-		Attachments: &attachment.Service{Pool: pool, Objects: objects, Policies: policies, Projects: projects, Queue: a.Streams},
+		Attachments: attachments,
 		Memories:    a.Memories,
 		Recall:      &recall.Service{Pool: pool, Index: a.Index, Memories: a.Memories, Policies: policies, Entities: entities},
 		Vault:       vaults,

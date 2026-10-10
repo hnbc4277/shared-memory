@@ -1,21 +1,17 @@
 package kb
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"sharedmemory/internal/artifact"
 	"sharedmemory/internal/attachment"
 	"sharedmemory/internal/index"
 	"sharedmemory/internal/objectstore"
@@ -27,6 +23,8 @@ type Store struct {
 	objects objectstore.Store
 	enqueue queue.Enqueuer
 	index   *index.Service
+	arts    *artifact.Store
+	atts    *attachment.Service
 }
 
 func NewStore(pool *pgxpool.Pool, objects objectstore.Store, eq queue.Enqueuer, idx *index.Service) *Store {
@@ -48,57 +46,13 @@ func scanDoc(row pgx.Row) (Document, error) {
 }
 
 func (s *Store) AddUpload(ctx context.Context, accountID uuid.UUID, in AddUploadInput) (Document, error) {
-	if len(in.Body) > MaxBytes {
-		return Document{}, ErrTooLarge
-	}
-	m := attachment.NormalizeMIME(in.MIME, in.Name)
-	if !allowedMIME[m] {
-		return Document{}, fmt.Errorf("%w: %s", ErrUnsupportedType, m)
-	}
-	sum := sha256.Sum256(in.Body)
-	hash := hex.EncodeToString(sum[:])
-
-	existing, err := scanDoc(s.pool.QueryRow(ctx, `
-		SELECT `+docColumns+` FROM kb_documents
-		WHERE account_id = $1 AND content_hash = $2 AND status = $3
-		LIMIT 1`, accountID, hash, StatusReady))
-	if err == nil {
-		return existing, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return Document{}, err
-	}
-
-	title := strings.TrimSpace(in.Title)
-	if title == "" {
-		title = strings.TrimSpace(in.Name)
-		if title == "" {
-			title = "untitled"
-		} else {
-			title = filepath.Base(strings.ReplaceAll(title, `\`, "/"))
-		}
-	}
-	id := uuid.New()
-	key := ObjectKey(accountID, id)
-	if err := s.objects.Put(ctx, key, bytes.NewReader(in.Body), int64(len(in.Body)), m); err != nil {
-		return Document{}, fmt.Errorf("store kb object: %w", err)
-	}
-	doc, err := scanDoc(s.pool.QueryRow(ctx, `
-		INSERT INTO kb_documents (
-			id, account_id, title, mime, source_type, object_key, bytes, content_hash, status
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		RETURNING `+docColumns,
-		id, accountID, title, m, SourceUpload, key, int64(len(in.Body)), hash, StatusPending))
-	if err != nil {
-		_ = s.objects.Delete(ctx, key)
-		return Document{}, fmt.Errorf("insert kb document: %w", err)
-	}
-	if err := s.enqueue.Enqueue(ctx, queue.Job{
-		Type: queue.JobKBParse, AccountID: accountID, DocumentID: doc.ID,
-	}); err != nil {
-		log.Printf("enqueue kb_parse %s: %v", doc.ID, err)
-	}
-	return doc, nil
+	return s.addBytes(ctx, accountID, addBytesInput{
+		Title:      in.Title,
+		MIME:       in.MIME,
+		Name:       in.Name,
+		Body:       in.Body,
+		SourceType: SourceUpload,
+	})
 }
 
 func (s *Store) List(ctx context.Context, accountID uuid.UUID, limit, offset int) ([]Document, error) {
