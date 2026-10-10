@@ -27,6 +27,7 @@ func TestBuildReceipt_DegradedAndDefaults(t *testing.T) {
 	}
 	res := Result{
 		Hits:     []Item{{ID: uuid.New()}, {ID: uuid.New()}},
+		KBHits:   []KBHit{{ID: uuid.New()}, {ID: uuid.New()}, {ID: uuid.New()}},
 		Warnings: []string{WarnPGFallback},
 	}
 	r := buildReceipt(req, res)
@@ -38,6 +39,9 @@ func TestBuildReceipt_DegradedAndDefaults(t *testing.T) {
 	}
 	if r.HitCount != 2 {
 		t.Fatalf("hit_count = %d", r.HitCount)
+	}
+	if r.KBHitCount != 3 {
+		t.Fatalf("kb_hit_count = %d", r.KBHitCount)
 	}
 	if r.QueryPreview != "hello" {
 		t.Fatalf("query_preview = %q", r.QueryPreview)

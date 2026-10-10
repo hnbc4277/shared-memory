@@ -130,7 +130,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			Projects: projects, Vault: vaults, Artifacts: artifacts},
 		Attachments: attachments,
 		Memories:    a.Memories,
-		Recall:      &recall.Service{Pool: pool, Index: a.Index, Memories: a.Memories, Policies: policies, Entities: entities},
+		Recall:      &recall.Service{Pool: pool, Index: a.Index, Memories: a.Memories, Policies: policies, Entities: entities, KB: kbStore},
 		Vault:       vaults,
 		Artifacts:   artifacts,
 		Audit:       audit.NewLog(pool),

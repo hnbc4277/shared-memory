@@ -22,6 +22,7 @@ type Receipt struct {
 	AgentPath         string     `json:"agent_path,omitempty"`
 	QueriedAt         time.Time  `json:"queried_at"`
 	HitCount          int        `json:"hit_count"`
+	KBHitCount        int        `json:"kb_hit_count"`
 	Degraded          bool       `json:"degraded"`
 	Warnings          []string   `json:"warnings"`
 	Source            string     `json:"source"`
@@ -67,6 +68,7 @@ func buildReceipt(req Request, res Result) Receipt {
 		Agent:             strings.TrimSpace(req.Agent),
 		AgentPath:         strings.TrimSpace(req.AgentPath),
 		HitCount:          len(res.Hits),
+		KBHitCount:        len(res.KBHits),
 		Degraded:          isDegraded(warnings),
 		Warnings:          warnings,
 		Source:            source,
@@ -94,11 +96,11 @@ func (s *Service) recordReceipt(ctx context.Context, accountID uuid.UUID, req Re
 	err = s.Pool.QueryRow(ctx, `
 		INSERT INTO recall_receipts (
 			account_id, project_id, session_id, external_session_id,
-			agent, agent_path, hit_count, degraded, warnings, source, query_preview
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			agent, agent_path, hit_count, kb_hit_count, degraded, warnings, source, query_preview
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING id`,
 		accountID, r.ProjectID, r.SessionID, nullStr(r.ExternalSessionID),
-		nullStr(r.Agent), nullStr(r.AgentPath), r.HitCount, r.Degraded, warnJSON, r.Source, nullStr(r.QueryPreview),
+		nullStr(r.Agent), nullStr(r.AgentPath), r.HitCount, r.KBHitCount, r.Degraded, warnJSON, r.Source, nullStr(r.QueryPreview),
 	).Scan(&id)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("recall receipt: %w", err)
@@ -115,7 +117,7 @@ func (s *Service) ListReceipts(ctx context.Context, accountID uuid.UUID, filter 
 		limit = 20
 	}
 	q := `SELECT id, project_id, session_id, COALESCE(external_session_id, ''),
-		COALESCE(agent, ''), COALESCE(agent_path, ''), queried_at, hit_count, degraded,
+		COALESCE(agent, ''), COALESCE(agent_path, ''), queried_at, hit_count, kb_hit_count, degraded,
 		COALESCE(warnings, '[]'::jsonb), source, COALESCE(query_preview, '')
 		FROM recall_receipts WHERE account_id = $1`
 	args := []any{accountID}
@@ -144,7 +146,7 @@ func (s *Service) ListReceipts(ctx context.Context, accountID uuid.UUID, filter 
 		var r Receipt
 		var warnJSON []byte
 		if err := rows.Scan(&r.ID, &r.ProjectID, &r.SessionID, &r.ExternalSessionID,
-			&r.Agent, &r.AgentPath, &r.QueriedAt, &r.HitCount, &r.Degraded,
+			&r.Agent, &r.AgentPath, &r.QueriedAt, &r.HitCount, &r.KBHitCount, &r.Degraded,
 			&warnJSON, &r.Source, &r.QueryPreview); err != nil {
 			return nil, err
 		}
