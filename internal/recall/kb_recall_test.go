@@ -269,3 +269,61 @@ func TestRecall_Receipt_KBHitCount(t *testing.T) {
 		t.Fatal("receipt not listed")
 	}
 }
+
+func TestRecall_UnusedKBQuotaGoesToMemory(t *testing.T) {
+	f := setupKBRecall(t)
+	marker := "kbquota" + uuid.NewString()[:8]
+	const n = 8 // > MaxMemoryHits; equals MaxMemoryHits+MaxKBHits when KB empty
+	for i := 0; i < n; i++ {
+		if _, _, err := f.mem.Add(f.ctx, f.acct, memory.Memory{
+			Scope: semantic.ScopeGlobal, Kind: semantic.KindFact,
+			Body: marker + " memory fact " + uuid.NewString()[:6], SourceAgentPath: "cursor",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := f.svc.Recall(f.ctx, f.acct, recall.Request{Query: marker, TopK: n})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.KBHits) != 0 {
+		t.Fatalf("expected empty kb_hits, got %+v", res.KBHits)
+	}
+	if len(res.Hits) <= recall.MaxMemoryHits {
+		t.Fatalf("unused KB quota must expand memory hits, got %d (cap base %d)", len(res.Hits), recall.MaxMemoryHits)
+	}
+	want := recall.MaxMemoryHits + recall.MaxKBHits
+	if len(res.Hits) > want {
+		t.Fatalf("hits = %d, want <= %d", len(res.Hits), want)
+	}
+}
+
+func TestRecall_KBHits_SkipsNonReadyAndMissingChunks(t *testing.T) {
+	f := setupKBRecall(t)
+	marker := "kbstale" + uuid.NewString()[:8]
+	docID, chunkID := f.seedReadyChunk(t, "Stale Doc", "ready then failed "+marker)
+	if err := f.kb.SetStatus(f.ctx, f.acct, docID, kb.StatusFailed, "parse boom"); err != nil {
+		t.Fatal(err)
+	}
+	phantom := uuid.New()
+	if err := f.textIdx.Index(f.ctx, index.Doc{
+		ID: phantom, DocType: index.DocKBChunk, AccountID: f.acct,
+		Kind: "Ghost", Body: "orphan projection " + marker,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := f.svc.Recall(f.ctx, f.acct, recall.Request{Query: marker, TopK: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range res.KBHits {
+		if h.ID == chunkID || h.ID == phantom {
+			t.Fatalf("non-ready/missing KB projection leaked: %+v", h)
+		}
+	}
+	if len(res.KBHits) != 0 {
+		t.Fatalf("kb_hits must be empty, got %+v", res.KBHits)
+	}
+}

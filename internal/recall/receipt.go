@@ -45,7 +45,7 @@ func previewQuery(q string, maxRunes int) string {
 
 func isDegraded(warnings []string) bool {
 	for _, w := range warnings {
-		if w == WarnIndexDegraded || w == WarnPGFallback {
+		if w == WarnIndexDegraded || w == WarnPGFallback || w == WarnKBDegraded {
 			return true
 		}
 	}

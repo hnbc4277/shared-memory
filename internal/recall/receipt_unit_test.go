@@ -50,3 +50,12 @@ func TestBuildReceipt_DegradedAndDefaults(t *testing.T) {
 		t.Fatal("warnings must be non-nil")
 	}
 }
+
+func TestIsDegraded_IncludesKBDegraded(t *testing.T) {
+	if !isDegraded([]string{WarnKBDegraded}) {
+		t.Fatal("WarnKBDegraded must count as degraded")
+	}
+	if isDegraded([]string{WarnInjectOff}) {
+		t.Fatal("inject_disabled alone must not be degraded")
+	}
+}
