@@ -23,15 +23,29 @@ func (r *Router) handleCreateKBDocument(w http.ResponseWriter, req *http.Request
 	var body struct {
 		ArtifactID   string `json:"artifact_id"`
 		AttachmentID string `json:"attachment_id"`
+		Title        string `json:"title"`
+		Text         string `json:"text"`
+		MIME         string `json:"mime"`
 	}
 	if !decode(w, req, &body) {
 		return
 	}
 	accountID := accountOf(req)
-	switch {
-	case strings.TrimSpace(body.ArtifactID) != "" && strings.TrimSpace(body.AttachmentID) != "":
-		writeError(w, http.StatusBadRequest, "provide only one of artifact_id or attachment_id")
+	nSrc := 0
+	if strings.TrimSpace(body.ArtifactID) != "" {
+		nSrc++
+	}
+	if strings.TrimSpace(body.AttachmentID) != "" {
+		nSrc++
+	}
+	if strings.TrimSpace(body.Text) != "" {
+		nSrc++
+	}
+	if nSrc > 1 {
+		writeError(w, http.StatusBadRequest, "provide only one of artifact_id, attachment_id, or text")
 		return
+	}
+	switch {
 	case strings.TrimSpace(body.ArtifactID) != "":
 		id, ok := optionalUUID(w, body.ArtifactID, "artifact_id")
 		if !ok || id == nil {
@@ -54,8 +68,28 @@ func (r *Router) handleCreateKBDocument(w http.ResponseWriter, req *http.Request
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"document": doc})
+	case strings.TrimSpace(body.Text) != "":
+		mime := strings.TrimSpace(body.MIME)
+		if mime == "" {
+			mime = "text/plain"
+		}
+		name := "paste.txt"
+		if mime == "text/markdown" {
+			name = "paste.md"
+		}
+		doc, err := r.KB.AddUpload(req.Context(), accountID, kb.AddUploadInput{
+			Title: body.Title,
+			MIME:  mime,
+			Name:  name,
+			Body:  []byte(body.Text),
+		})
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"document": doc})
 	default:
-		writeError(w, http.StatusBadRequest, "expected multipart file upload or JSON artifact_id/attachment_id")
+		writeError(w, http.StatusBadRequest, "expected multipart file upload or JSON artifact_id/attachment_id/text")
 	}
 }
 

@@ -138,6 +138,7 @@ type policyPatch struct {
 	StoreTranscript    *bool `json:"store_transcript"`
 	StoreAttachments   *bool `json:"store_attachments"`
 	InjectEnabled      *bool `json:"inject_enabled"`
+	KBInjectEnabled    *bool `json:"kb_inject_enabled"`
 	VaultEnabled       *bool `json:"vault_enabled"`
 	ArtifactSearchable *bool `json:"artifact_searchable"`
 	CloudVisionEnabled *bool `json:"cloud_vision_enabled"`
@@ -163,6 +164,7 @@ func (r *Router) handlePutPolicy(w http.ResponseWriter, req *http.Request) {
 	setIf(&p.StoreTranscript, patch.StoreTranscript)
 	setIf(&p.StoreAttachments, patch.StoreAttachments)
 	setIf(&p.InjectEnabled, patch.InjectEnabled)
+	setIf(&p.KBInjectEnabled, patch.KBInjectEnabled)
 	setIf(&p.VaultEnabled, patch.VaultEnabled)
 	setIf(&p.ArtifactSearchable, patch.ArtifactSearchable)
 	setIf(&p.CloudVisionEnabled, patch.CloudVisionEnabled)

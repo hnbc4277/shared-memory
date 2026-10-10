@@ -12,6 +12,7 @@ import (
 
 	"sharedmemory/internal/account"
 	"sharedmemory/internal/artifact"
+	"sharedmemory/internal/kb"
 	"sharedmemory/internal/memory"
 	"sharedmemory/internal/objectstore"
 	"sharedmemory/internal/policy"
@@ -119,6 +120,29 @@ func TestDeleteProject_RemovesOnlyThatProject(t *testing.T) {
 	}
 }
 
+func TestDeleteProject_KnowledgeBaseSurvives(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	acct := testutil.NewAccount(t, w.pool)
+	p, err := project.NewStore(w.pool).Create(ctx, acct, "doomed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.seed(t, acct, p.ID.String())
+	kbStore := kb.NewStore(w.pool, w.objects, w.queue, nil)
+	if _, err := kbStore.AddUpload(ctx, acct, kb.AddUploadInput{
+		Title: "global kb", MIME: "text/plain", Name: "note.txt", Body: []byte("account-wide reference"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.deleter.DeleteProject(ctx, acct, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := w.count(t, "kb_documents", acct); n != 1 {
+		t.Fatalf("kb_documents = %d, want 1 after project delete", n)
+	}
+}
+
 func TestDeleteAccount_RemovesEverything(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t)
@@ -128,12 +152,18 @@ func TestDeleteAccount_RemovesEverything(t *testing.T) {
 	w.seed(t, acct, p.ID.String())
 	w.seed(t, acct, "")
 	w.seed(t, other, "")
+	kbStore := kb.NewStore(w.pool, w.objects, w.queue, nil)
+	if _, err := kbStore.AddUpload(ctx, acct, kb.AddUploadInput{
+		Title: "kb", MIME: "text/markdown", Name: "doc.md", Body: []byte("# Title\nbody"),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := w.deleter.DeleteAccount(ctx, acct); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"sessions", "messages", "events", "memories", "vault_candidates", "artifact_candidates",
-		"projects", "api_keys", "accounts"} {
+	for _, table := range []string{"sessions", "messages", "events", "memories", "kb_documents", "kb_chunks",
+		"vault_candidates", "artifact_candidates", "projects", "api_keys", "accounts"} {
 		if n := w.count(t, table, acct); n != 0 {
 			t.Errorf("%s: %d rows left", table, n)
 		}

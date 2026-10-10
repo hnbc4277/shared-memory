@@ -6,6 +6,7 @@ import HistoryPage from "./pages/HistoryPage";
 import MemoryPage from "./pages/MemoryPage";
 import VaultPage from "./pages/VaultPage";
 import ArtifactsPage from "./pages/ArtifactsPage";
+import KBPage from "./pages/KBPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import SettingsPage from "./pages/SettingsPage";
 import KeysPage from "./pages/KeysPage";
@@ -18,6 +19,7 @@ const TABS = [
   { id: "memory", label: "记忆", page: MemoryPage },
   { id: "vault", label: "凭证库", page: VaultPage },
   { id: "artifacts", label: "成稿库", page: ArtifactsPage },
+  { id: "kb", label: "知识库", page: KBPage },
   { id: "projects", label: "项目", page: ProjectsPage },
   { id: "settings", label: "设置", page: SettingsPage },
   { id: "keys", label: "密钥", page: KeysPage },

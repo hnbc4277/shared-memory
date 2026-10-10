@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import type { Message, RecallReceipt, Session, ToolCall } from "../api/client";
 import { fmtTime, useApp, useLoad } from "../ctx";
 import { Chip, ChipList, Empty, ErrorLine, Section } from "../ui";
@@ -147,8 +147,29 @@ function AttachmentThumbs({ ids }: { ids: string[] }) {
 }
 
 function Thumb({ id }: { id: string }) {
-  const { api } = useApp();
+  const { api, notify } = useApp();
   const thumb = useLoad(() => api.get<{ thumbnail_url: string | null }>(`/v1/attachments/${id}/thumbnail`), [api, id]);
-  if (!thumb.data?.thumbnail_url) return null;
-  return <img className="thumb" src={thumb.data.thumbnail_url} alt="" width={96} height={96} />;
+
+  async function addToKB(e: MouseEvent) {
+    e.stopPropagation();
+    try {
+      await api.post("/v1/kb/documents", { attachment_id: id });
+      notify("附件已加入知识库");
+    } catch (err) {
+      notify((err as Error).message, "error");
+    }
+  }
+
+  return (
+    <div className="thumb-wrap stack-tight">
+      {thumb.data?.thumbnail_url ? (
+        <img className="thumb" src={thumb.data.thumbnail_url} alt="" width={96} height={96} />
+      ) : (
+        <Chip tone="tool">附件</Chip>
+      )}
+      <button type="button" className="small" onClick={addToKB}>
+        加入知识库
+      </button>
+    </div>
+  );
 }

@@ -5,6 +5,18 @@ import { Empty, ErrorLine, Section, Toggle } from "../ui";
 function QuarantineList() {
   const { api, notify } = useApp();
   const list = useLoad(() => api.get<{ id: string; agent: string; reason: string; payload: unknown; created_at: string }[]>("/v1/quarantine", { limit: 50 }), [api]);
+
+  async function replay(id: string) {
+    try {
+      await api.post(`/v1/quarantine/${id}/replay`, {});
+      notify("重放成功，已移出隔离区");
+      await list.reload();
+    } catch (e) {
+      notify((e as Error).message, "error");
+      await list.reload();
+    }
+  }
+
   return (
     <>
       <ErrorLine error={list.error} />
@@ -18,11 +30,12 @@ function QuarantineList() {
                 <td className="muted">{fmtTime(e.created_at)}</td>
                 <td>{e.agent || "—"}</td>
                 <td className="small">{e.reason}</td>
-                <td>
+                <td className="row-actions">
                   <button className="small" onClick={() => {
                     void navigator.clipboard.writeText(JSON.stringify(e.payload, null, 2));
                     notify("已复制 payload");
                   }}>复制 payload</button>
+                  <button className="small" onClick={() => void replay(e.id)}>重放</button>
                 </td>
               </tr>
             ))}
@@ -37,6 +50,7 @@ const TOGGLES: { key: keyof Policy; label: string; hint: string }[] = [
   { key: "store_transcript", label: "保存聊天原文", hint: "关闭后只记录溯源信息（智能体、技能、插件、时间），不保存正文" },
   { key: "store_attachments", label: "保存附件文件", hint: "关闭后附件只保留文件名、类型、大小等元数据" },
   { key: "inject_enabled", label: "自动注入记忆", hint: "智能体开始任务时自动带上相关记忆" },
+  { key: "kb_inject_enabled", label: "召回时注入知识库", hint: "memory_recall 时带上知识库片段（kb_hits）；关闭则只召回记忆" },
   { key: "vault_enabled", label: "检测账号口令", hint: "检测到口令时询问是否加密保存到凭证库（无论开关，口令都不会以明文存储）" },
   { key: "artifact_searchable", label: "成稿参与检索", hint: "允许召回时检索已保存的成稿内容" },
   { key: "cloud_vision_enabled", label: "云侧图片视觉描述", hint: "开启后，配置了 VISION_URL 的 Worker 可用多模态模型描述图片；关闭则仅用本地宽高/OCR" },
@@ -60,7 +74,7 @@ export default function SettingsPage() {
   }
 
   async function deleteAccount() {
-    const typed = prompt("这会永久删除账号下的全部会话、原文、附件、记忆、凭证、成稿和密钥。\n输入 DELETE 确认：");
+    const typed = prompt("这会永久删除账号下的全部会话、原文、附件、记忆、知识库、凭证、成稿和密钥。\n输入 DELETE 确认：");
     if (typed !== "DELETE") return;
     try {
       await api.del("/v1/account", { "X-Confirm": "delete" });
@@ -92,7 +106,7 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      <Section title="隔离区（不合格上报）" actions={<span className="muted small">仅审计；请在客户端补全字段后重新发送</span>}>
+      <Section title="隔离区（不合格上报）" actions={<span className="muted small">可「重放」；失败则更新原因并保留</span>}>
         <QuarantineList />
       </Section>
 

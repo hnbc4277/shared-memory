@@ -70,8 +70,8 @@ func TestServe_HandshakeAndToolList(t *testing.T) {
 	for _, tool := range tools {
 		names[tool.(map[string]any)["name"].(string)] = true
 	}
-	for _, want := range []string{"memory_ingest", "memory_recall", "memory_list_sessions", "memory_get_session",
-		"memory_list_candidates", "memory_resolve_candidate"} {
+	for _, want := range []string{"memory_ingest", "memory_recall", "memory_recall_status", "memory_list_sessions", "memory_get_session",
+		"memory_list_candidates", "memory_resolve_candidate", "kb_add", "kb_list", "kb_get", "kb_delete"} {
 		if !names[want] {
 			t.Errorf("missing tool %s", want)
 		}
@@ -87,8 +87,10 @@ func TestServe_ToolsProxyToAPI(t *testing.T) {
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_list_sessions","arguments":{"agent_path":"xiaolongxia/researcher","limit":5}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memory_resolve_candidate","arguments":{"kind":"artifact","candidate_id":"c1","decision":"accept"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"memory_get_session","arguments":{"session_id":"missing"}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"memory_recall_status","arguments":{"external_session_id":"ext-1","within_minutes":15}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"kb_add","arguments":{"title":"Spec","text":"# KB\nline"}}}`,
 	)
-	if len(calls) != 4 {
+	if len(calls) != 6 {
 		t.Fatalf("api calls = %d", len(calls))
 	}
 	if calls[0].path != "/v1/ingest" || calls[0].body["agent"] != "cursor" || calls[0].auth != "Bearer sm_test" {
@@ -104,5 +106,13 @@ func TestServe_ToolsProxyToAPI(t *testing.T) {
 	last := resps[3]["result"].(map[string]any)
 	if last["isError"] != true {
 		t.Fatalf("API errors must surface as tool errors: %v", last)
+	}
+	if calls[4].method != "GET" || !strings.Contains(calls[4].path, "/v1/recall/receipts/check") ||
+		!strings.Contains(calls[4].path, "external_session_id=ext-1") ||
+		!strings.Contains(calls[4].path, "within_minutes=15") {
+		t.Fatalf("recall_status call = %+v", calls[4])
+	}
+	if calls[5].method != "POST" || calls[5].path != "/v1/kb/documents" || calls[5].body["text"] != "# KB\nline" {
+		t.Fatalf("kb_add call = %+v", calls[5])
 	}
 }

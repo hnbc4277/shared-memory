@@ -33,6 +33,10 @@ func AccountPrefix(accountID uuid.UUID) string {
 	return accountID.String() + "/"
 }
 
+func KBPrefix(accountID uuid.UUID) string {
+	return fmt.Sprintf("%s/kb/", accountID)
+}
+
 func ProjectPrefix(accountID, projectID uuid.UUID) string {
 	return fmt.Sprintf("%s/%s/", accountID, projectID)
 }

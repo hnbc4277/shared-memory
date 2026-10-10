@@ -103,6 +103,15 @@ function Viewer({ id, onChanged }: { id: string; onChanged: () => void }) {
     }
   }
 
+  async function addToKB() {
+    try {
+      await api.post("/v1/kb/documents", { artifact_id: id });
+      notify("已加入知识库（解析中）");
+    } catch (e) {
+      notify((e as Error).message, "error");
+    }
+  }
+
   async function remove() {
     if (!confirm("删除这篇成稿及其全部版本？")) return;
     try {
@@ -120,6 +129,7 @@ function Viewer({ id, onChanged }: { id: string; onChanged: () => void }) {
       <div className="row">
         <button className="small" onClick={() => setEditing((v) => !v)}>{editing ? "取消编辑" : "编辑"}</button>
         <button className="small" onClick={() => void exportMd()}>导出 Markdown</button>
+        <button className="small" onClick={() => void addToKB()}>加入知识库</button>
         <button className="small danger" onClick={() => void remove()}>删除</button>
         <span className="muted small">来源 {d.artifact.source_agent_path || "手动"} · 共 {d.versions.length} 个版本</span>
       </div>

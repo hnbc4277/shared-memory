@@ -87,8 +87,9 @@ func (s *Server) dispatch(ctx context.Context, req rpcRequest) (any, *rpcError) 
 			"protocolVersion": ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "shared-memory", "version": s.Version},
-			"instructions": "Shared memory across agents. Call memory_recall at the start of a task, and memory_ingest " +
-				"for every user and assistant message with full provenance (agent, agent_path, skills, plugins, tools, model).",
+			"instructions": "Shared memory across agents. Call memory_recall at the start of a task (returns memories and " +
+				"knowledge base excerpts in context). Use kb_add to add text or promote artifacts/attachments into the " +
+				"knowledge base. Call memory_ingest for every user and assistant message with full provenance.",
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
@@ -159,6 +160,22 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 			return "", fmt.Errorf("session_id is required")
 		}
 		out, err = s.Client.CallRaw(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(id), nil)
+	case "memory_recall_status":
+		q := url.Values{}
+		if v := str("external_session_id"); v != "" {
+			q.Set("external_session_id", v)
+		}
+		if v := str("session_id"); v != "" {
+			q.Set("session_id", v)
+		}
+		if v, ok := args["within_minutes"].(float64); ok && v > 0 {
+			q.Set("within_minutes", fmt.Sprint(int(v)))
+		}
+		path := "/v1/recall/receipts/check"
+		if enc := q.Encode(); enc != "" {
+			path += "?" + enc
+		}
+		out, err = s.Client.CallRaw(ctx, http.MethodGet, path, nil)
 	case "memory_list_candidates":
 		out, err = s.Client.CallRaw(ctx, http.MethodGet, "/v1/candidates", nil)
 	case "memory_resolve_candidate":
@@ -171,6 +188,49 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 			prefix = "/v1/artifacts/candidates/"
 		}
 		out, err = s.Client.CallRaw(ctx, http.MethodPost, prefix+url.PathEscape(id)+"/"+decision, map[string]any{})
+	case "kb_add":
+		payload := map[string]any{}
+		if t := str("title"); t != "" {
+			payload["title"] = t
+		}
+		if t := str("text"); t != "" {
+			payload["text"] = t
+			if m := str("mime"); m != "" {
+				payload["mime"] = m
+			}
+		} else if id := str("artifact_id"); id != "" {
+			payload["artifact_id"] = id
+		} else if id := str("attachment_id"); id != "" {
+			payload["attachment_id"] = id
+		} else {
+			return "", fmt.Errorf("kb_add requires text, artifact_id, or attachment_id")
+		}
+		out, err = s.Client.CallRaw(ctx, http.MethodPost, "/v1/kb/documents", payload)
+	case "kb_list":
+		q := url.Values{}
+		if v, ok := args["limit"].(float64); ok && v > 0 {
+			q.Set("limit", fmt.Sprint(int(v)))
+		}
+		if v, ok := args["offset"].(float64); ok && v >= 0 {
+			q.Set("offset", fmt.Sprint(int(v)))
+		}
+		path := "/v1/kb/documents"
+		if enc := q.Encode(); enc != "" {
+			path += "?" + enc
+		}
+		out, err = s.Client.CallRaw(ctx, http.MethodGet, path, nil)
+	case "kb_get":
+		id := str("document_id")
+		if id == "" {
+			return "", fmt.Errorf("document_id is required")
+		}
+		out, err = s.Client.CallRaw(ctx, http.MethodGet, "/v1/kb/documents/"+url.PathEscape(id), nil)
+	case "kb_delete":
+		id := str("document_id")
+		if id == "" {
+			return "", fmt.Errorf("document_id is required")
+		}
+		out, err = s.Client.CallRaw(ctx, http.MethodDelete, "/v1/kb/documents/"+url.PathEscape(id), nil)
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
@@ -205,15 +265,30 @@ var toolDefs = []map[string]any{
 		},
 	},
 	{
-		"name":        "memory_recall",
-		"description": "Retrieve the user's shared memory (profile, project summary, relevant memories) for a query. Use the returned 'context' as background. Call this at the start of every non-trivial task.",
+		"name": "memory_recall",
+		"description": "Retrieve shared memory and knowledge base excerpts (profile, project summary, memories, kb_hits) for a query. " +
+			"Use the returned 'context' as background. Call this at the start of every non-trivial task.",
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{"type": "string"}, "project_id": map[string]any{"type": "string"},
 				"top_k": map[string]any{"type": "integer"},
+				"external_session_id": map[string]any{"type": "string"},
 			},
 			"required": []string{"query"},
+		},
+	},
+	{
+		"name": "memory_recall_status",
+		"description": "Check whether this conversation already has a successful Recall Receipt in the last N minutes. " +
+			"If need_recall is true, you MUST call memory_recall before continuing non-trivial work.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"external_session_id": map[string]any{"type": "string"},
+				"session_id":          map[string]any{"type": "string"},
+				"within_minutes":      map[string]any{"type": "integer"},
+			},
 		},
 	},
 	{
@@ -254,6 +329,49 @@ var toolDefs = []map[string]any{
 				"decision":     map[string]any{"type": "string", "enum": []string{"accept", "reject"}},
 			},
 			"required": []string{"kind", "candidate_id", "decision"},
+		},
+	},
+	{
+		"name": "kb_add",
+		"description": "Add content to the account knowledge base: inline text (title optional), or promote an existing artifact_id or attachment_id. Large files should use the Web console upload.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"title":         map[string]any{"type": "string"},
+				"text":          map[string]any{"type": "string"},
+				"mime":          map[string]any{"type": "string"},
+				"artifact_id":   map[string]any{"type": "string"},
+				"attachment_id": map[string]any{"type": "string"},
+			},
+		},
+	},
+	{
+		"name":        "kb_list",
+		"description": "List knowledge base documents for the account (newest first).",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"limit":  map[string]any{"type": "integer"},
+				"offset": map[string]any{"type": "integer"},
+			},
+		},
+	},
+	{
+		"name":        "kb_get",
+		"description": "Get one knowledge base document by document_id (status, errors, metadata).",
+		"inputSchema": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"document_id": map[string]any{"type": "string"}},
+			"required":   []string{"document_id"},
+		},
+	},
+	{
+		"name":        "kb_delete",
+		"description": "Delete a knowledge base document and its indexed chunks.",
+		"inputSchema": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"document_id": map[string]any{"type": "string"}},
+			"required":   []string{"document_id"},
 		},
 	},
 }

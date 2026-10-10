@@ -160,10 +160,24 @@ export interface Policy {
   store_transcript: boolean;
   store_attachments: boolean;
   inject_enabled: boolean;
+  kb_inject_enabled: boolean;
   vault_enabled: boolean;
   artifact_searchable: boolean;
   cloud_vision_enabled: boolean;
   retention_days: number;
+}
+
+export interface KBDocument {
+  id: string;
+  title: string;
+  mime: string;
+  source_type: "upload" | "artifact" | "attachment";
+  bytes: number;
+  content_hash: string;
+  status: "pending" | "ready" | "failed";
+  error?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface VaultCandidate {
