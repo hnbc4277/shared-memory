@@ -2,6 +2,9 @@
 
 // Package e2e drives the real HTTP API against the project's compose stack:
 // docker compose up -d && go test -tags=e2e ./internal/e2e/ -v
+//
+// Tests use a dedicated Redis job stream so a stale compose "worker" container
+// (old image without kb_parse) cannot steal queued jobs from this process.
 package e2e_test
 
 import (
@@ -10,10 +13,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -28,6 +33,8 @@ func testConfig() config.Config {
 		HTTPAddr:       ":0",
 		PostgresDSN:    "postgres://sm:sm@127.0.0.1:15432/sharedmemory?sslmode=disable",
 		RedisAddr:      "127.0.0.1:16379",
+		JobStream:      "sm:jobs:e2e",
+		JobGroup:       "sm-workers-e2e",
 		MinioEndpoint:  "127.0.0.1:19000",
 		MinioAccessKey: "smminio",
 		MinioSecretKey: "smminio_secret",
@@ -58,6 +65,40 @@ func (c client) do(method, path string, body any, headers ...string) (int, []byt
 	}
 	for i := 0; i+1 < len(headers); i += 2 {
 		req.Header.Set(headers[i], headers[i+1])
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, out
+}
+
+func (c client) uploadKB(title, filename, content string) (int, []byte) {
+	c.t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	if title != "" {
+		_ = w.WriteField("title", title)
+	}
+	part, err := w.CreateFormFile("file", filename)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if _, err := part.Write([]byte(content)); err != nil {
+		c.t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		c.t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, c.base+"/v1/kb/documents", &buf)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	if c.key != "" {
+		req.Header.Set("Authorization", "Bearer "+c.key)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -337,4 +378,97 @@ func TestEndToEnd(t *testing.T) {
 	}
 	B.must(200, "GET", "/v1/sessions", nil, nil)
 	fmt.Println("e2e: all 8 acceptance steps passed")
+}
+
+func TestKnowledgeBaseUploadRecall(t *testing.T) {
+	ctx := context.Background()
+	a, err := app.New(ctx, testConfig())
+	if err != nil {
+		t.Fatalf("start app (is `docker compose up -d` running?): %v", err)
+	}
+	defer a.Close()
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	drain := func() {
+		if _, err := a.Streams.Drain(ctx, "e2e-kb", a.Worker.Handle); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	A := register(t, srv.URL)
+	B := register(t, srv.URL)
+	marker := "kbe2e" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+	body := "# 知识库验收\n\n项目规范要求所有 API 必须带 account_id 隔离。" + marker + "\n"
+
+	code, raw := A.uploadKB("E2E KB", "spec.md", body)
+	if code != 201 {
+		t.Fatalf("upload kb: status %d: %s", code, raw)
+	}
+	var created struct {
+		Document struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"document"`
+	}
+	if err := json.Unmarshal(raw, &created); err != nil {
+		t.Fatalf("decode upload: %v: %s", err, raw)
+	}
+	docID := created.Document.ID
+	if docID == "" {
+		t.Fatalf("missing document id: %s", raw)
+	}
+
+	drain()
+
+	var doc struct {
+		Document struct {
+			Status string `json:"status"`
+			Error  string `json:"error"`
+		} `json:"document"`
+	}
+	deadline := time.Now().Add(45 * time.Second)
+	for {
+		A.must(200, "GET", "/v1/kb/documents/"+docID, nil, &doc)
+		switch doc.Document.Status {
+		case "ready":
+			goto ready
+		case "failed":
+			t.Fatalf("kb parse failed: %s", doc.Document.Error)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("kb document still %q after timeout", doc.Document.Status)
+		}
+		time.Sleep(200 * time.Millisecond)
+		drain()
+	}
+ready:
+
+	var rec struct {
+		KBHits []struct {
+			Body string `json:"body"`
+		} `json:"kb_hits"`
+		Context string `json:"context"`
+	}
+	A.must(200, "POST", "/v1/recall", map[string]any{"query": marker + " account_id"}, &rec)
+	if len(rec.KBHits) == 0 {
+		t.Fatalf("expected kb_hits, recall = %+v", rec)
+	}
+	found := strings.Contains(rec.Context, marker)
+	for _, h := range rec.KBHits {
+		if strings.Contains(h.Body, marker) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("recall missing kb marker: hits=%+v context=%q", rec.KBHits, rec.Context)
+	}
+
+	if code, _ := B.do("GET", "/v1/kb/documents/"+docID, nil); code != 404 {
+		t.Fatalf("B reading A's kb document: %d", code)
+	}
+	_, rawB := B.do("POST", "/v1/recall", map[string]any{"query": marker + " account_id"})
+	if strings.Contains(string(rawB), marker) {
+		t.Fatalf("B recall leaked A's kb: %s", rawB)
+	}
 }

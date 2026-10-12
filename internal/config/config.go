@@ -13,6 +13,9 @@ type Config struct {
 	HTTPAddr       string
 	PostgresDSN    string
 	RedisAddr      string
+	// JobStream and JobGroup override the Redis Streams queue (empty = sm:jobs / sm-workers).
+	JobStream string
+	JobGroup  string
 	MinioEndpoint  string
 	MinioAccessKey string
 	MinioSecretKey string

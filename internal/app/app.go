@@ -82,7 +82,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	a.Objects = objects
 	a.Redis = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
-	a.Streams = queue.NewStreams(a.Redis, "", "")
+	a.Streams = queue.NewStreams(a.Redis, cfg.JobStream, cfg.JobGroup)
 	if err := a.Streams.EnsureGroup(ctx); err != nil {
 		log.Printf("redis unavailable, ingest will mark sessions degraded: %v", err)
 	}
