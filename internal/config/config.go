@@ -42,6 +42,8 @@ type Config struct {
 	VisionURL    string
 	VisionAPIKey string
 	VisionModel  string
+	// RecallReceiptRetentionDays is how long recall_receipts are kept; default 30.
+	RecallReceiptRetentionDays int
 }
 
 func Load(path string) (Config, error) {
@@ -84,6 +86,17 @@ func Load(path string) (Config, error) {
 		VisionURL:        vals["VISION_URL"],
 		VisionAPIKey:     vals["VISION_API_KEY"],
 		VisionModel:      firstNonEmpty(vals["VISION_MODEL"], "gpt-4o-mini"),
+		RecallReceiptRetentionDays: 30,
+	}
+	if v := vals["RECALL_RECEIPT_RETENTION_DAYS"]; v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return Config{}, fmt.Errorf("invalid RECALL_RECEIPT_RETENTION_DAYS: %q", v)
+		}
+		if n == 0 {
+			n = 30
+		}
+		cfg.RecallReceiptRetentionDays = n
 	}
 	if v := vals["EMBEDDER_MODEL"]; v != "" {
 		cfg.EmbedderModel = v

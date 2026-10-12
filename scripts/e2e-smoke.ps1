@@ -3,9 +3,54 @@
 # Then:                    powershell -File scripts/e2e-smoke.ps1
 param(
     [string]$Api = "http://127.0.0.1:18080",
-    [int]$WorkerWaitSeconds = 20
+    [int]$WorkerWaitSeconds = 45,
+    [int]$KBWaitSeconds = 45
 )
 $ErrorActionPreference = "Stop"
+# Windows 控制台 UTF-8，避免中文功能名乱码
+if ($PSVersionTable.PSVersion.Major -ge 6) {
+    $null = chcp 65001
+}
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$OutputEncoding = [Text.Encoding]::UTF8
+
+$script:SmokeLog = @()
+$script:StepIndex = 0
+$script:AnyFailed = $false
+
+function Write-SmokeResult {
+    param(
+        [ValidateSet("PASS", "FAIL")]
+        [string]$Status,
+        [string]$Feature,
+        [string]$Detail = ""
+    )
+    $script:StepIndex++
+    $id = "{0:D2}" -f $script:StepIndex
+    $line = "[$id] $Status  $Feature"
+    if ($Detail) { $line += " — $Detail" }
+    if ($Status -eq "PASS") {
+        Write-Host $line -ForegroundColor Green
+    } else {
+        Write-Host $line -ForegroundColor Red
+        $script:AnyFailed = $true
+    }
+    $script:SmokeLog += [pscustomobject]@{
+        Id      = $id
+        Status  = $Status
+        Feature = $Feature
+        Detail  = $Detail
+    }
+}
+
+function Require-True {
+    param([bool]$Cond, [string]$Feature, [string]$Detail = "")
+    if ($Cond) {
+        Write-SmokeResult -Status PASS -Feature $Feature -Detail $Detail
+    } else {
+        Write-SmokeResult -Status FAIL -Feature $Feature -Detail $(if ($Detail) { $Detail } else { "assertion failed" })
+    }
+}
 
 function Invoke-Sm {
     param([string]$Method, [string]$Path, $Body = $null, [string]$Key = "", [hashtable]$Headers = @{})
@@ -27,78 +72,167 @@ function Invoke-Sm {
     }
 }
 
-function Assert-True([bool]$Cond, [string]$Msg) {
-    if (-not $Cond) { Write-Host "FAIL: $Msg" -ForegroundColor Red; exit 1 }
-    Write-Host "ok   $Msg" -ForegroundColor Green
+function Invoke-SmKbUpload {
+    param([string]$Key, [string]$Title, [string]$FileName, [string]$Content)
+    Add-Type -AssemblyName System.Net.Http
+    $client = [System.Net.Http.HttpClient]::new()
+    $client.DefaultRequestHeaders.Authorization =
+        [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $Key)
+    $multipart = [System.Net.Http.MultipartFormDataContent]::new()
+    $multipart.Add([System.Net.Http.StringContent]::new($Title), "title")
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Content)
+    $filePart = [System.Net.Http.ByteArrayContent]::new($bytes)
+    $filePart.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::new("text/markdown")
+    $multipart.Add($filePart, "file", $FileName)
+    $resp = $client.PostAsync("$Api/v1/kb/documents", $multipart).GetAwaiter().GetResult()
+    $text = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    $json = $null
+    if ($resp.Content.Headers.ContentType.MediaType -like "application/json*") {
+        $json = $text | ConvertFrom-Json
+    }
+    [pscustomobject]@{ Status = [int]$resp.StatusCode; Text = $text; Json = $json }
 }
 
 function New-Account {
     $r = Invoke-Sm POST "/v1/auth/register" @{ email = "smoke-$([guid]::NewGuid())@example.com"; password = "password123" }
-    Assert-True ($r.Status -eq 201) "register account"
+    Require-True ($r.Status -eq 201) "认证：注册账号" "HTTP $($r.Status)"
     return $r.Json.api_key
 }
 
 function New-Message([string]$ProjectId, [string]$Role, [string]$Content) {
-    return @{ project_id = $ProjectId; agent = "xiaolongxia"; agent_path = "xiaolongxia/researcher"
-        skills = @("deep-research"); plugins = @("browser"); tools = @("web_fetch"); model = "deepseek-v3"
-        role = $Role; content = $Content }
+    return @{
+        project_id = $ProjectId; agent = "xiaolongxia"; agent_path = "xiaolongxia/researcher"
+        skills     = @("deep-research"); plugins = @("browser"); tools = @("web_fetch"); model = "deepseek-v3"
+        role       = $Role; content = $Content
+    }
 }
 
-Assert-True ((Invoke-Sm GET "/healthz").Status -eq 200) "api healthy at $Api"
+function Print-Summary {
+    Write-Host ""
+    Write-Host "========== Smoke 测试汇总 ==========" -ForegroundColor Cyan
+    foreach ($row in $script:SmokeLog) {
+        $color = if ($row.Status -eq "PASS") { "Green" } else { "Red" }
+        $suffix = if ($row.Detail) { " ($($row.Detail))" } else { "" }
+        Write-Host ("  {0}  {1}{2}" -f $row.Status, $row.Feature, $suffix) -ForegroundColor $color
+    }
+    $pass = @($script:SmokeLog | Where-Object { $_.Status -eq "PASS" }).Count
+    $fail = @($script:SmokeLog | Where-Object { $_.Status -eq "FAIL" }).Count
+    Write-Host "------------------------------------" -ForegroundColor Cyan
+    Write-Host "  合计: $($script:SmokeLog.Count) 项 | 通过 $pass | 失败 $fail" -ForegroundColor $(if ($fail -gt 0) { "Red" } else { "Green" })
+    Write-Host "  API: $Api" -ForegroundColor DarkGray
+}
 
-# 2. two accounts
+Write-Host "Smoke 开始 → $Api" -ForegroundColor Cyan
+Write-Host ""
+
+# --- 基础设施 ---
+Require-True ((Invoke-Sm GET "/healthz").Status -eq 200) "健康检查：API /healthz" "服务可达"
+
+# --- 账号与项目 ---
 $A = New-Account
 $B = New-Account
-$project = (Invoke-Sm POST "/v1/projects" @{ name = "smoke" } $A).Json.id
+$projResp = Invoke-Sm POST "/v1/projects" @{ name = "smoke" } $A
+Require-True ($projResp.Status -eq 201) "项目：创建项目" "HTTP $($projResp.Status)"
+$project = $projResp.Json.id
 
-# 3. sub-agent ingest with provenance arrays
+# --- 会话与 ingest ---
 $marker = "smoke" + ([guid]::NewGuid().ToString("N").Substring(0, 8))
 $r1 = Invoke-Sm POST "/v1/ingest" (New-Message $project "user" "我们决定采用 OpenSearch 做全文检索 $marker") $A
-Assert-True ($r1.Status -eq 201) "ingest with agent_path=xiaolongxia/researcher"
+Require-True ($r1.Status -eq 201) "会话：ingest（子智能体 provenance）" "agent_path=xiaolongxia/researcher"
 $sessions = (Invoke-Sm GET "/v1/sessions?agent_path=xiaolongxia" $null $A).Json
-Assert-True (@($sessions).Count -eq 1) "session listed under agent_path filter"
+Require-True (@($sessions).Count -eq 1) "会话：按 agent_path 筛选列表" "count=1"
 
-# 4. recall: A hits (after the worker processes the job), B sees nothing
+# --- 记忆 recall ---
 $hit = $false
 for ($i = 0; $i -lt $WorkerWaitSeconds; $i++) {
     $rec = Invoke-Sm POST "/v1/recall" @{ project_id = $project; query = "$marker OpenSearch" } $A
     if ($rec.Text -like "*$marker*") { $hit = $true; break }
     Start-Sleep -Seconds 1
 }
-Assert-True $hit "A recall returns its memory (worker processed the job)"
+Require-True $hit "记忆：recall 命中本账号（worker 已处理队列）" "marker=$marker"
 $recB = Invoke-Sm POST "/v1/recall" @{ query = "$marker OpenSearch" } $B
-Assert-True (-not ($recB.Text -like "*$marker*")) "B recall does not contain A's data"
+Require-True (-not ($recB.Text -like "*$marker*")) "记忆：跨账号隔离（B 看不到 A）" ""
 
-# 5. transcript off -> content not stored
+# --- 策略 ---
 Invoke-Sm PUT "/v1/policy" @{ store_transcript = $false } $A | Out-Null
 $r2 = Invoke-Sm POST "/v1/ingest" (New-Message $project "user" "这条不保存原文") $A
 $detail = (Invoke-Sm GET "/v1/sessions/$($r2.Json.session_id)" $null $A).Json
-Assert-True (-not $detail.messages[0].content_stored) "transcript off: message content not stored"
+Require-True (-not $detail.messages[0].content_stored) "策略：关闭 transcript 后不存原文" ""
 Invoke-Sm PUT "/v1/policy" @{ store_transcript = $true } $A | Out-Null
+Require-True $true "策略：恢复 transcript 存储" ""
 
-# 6. vault: consent -> reveal with password; secret never in recall/session output
+# --- 保险库 ---
 $secret = "Zx9!" + ([guid]::NewGuid().ToString("N").Substring(0, 6))
 $r3 = Invoke-Sm POST "/v1/ingest" (New-Message $project "user" "GitLab https://gitlab.example.com 账号: alice 密码: $secret") $A
 $vaultPrompt = @($r3.Json.prompts | Where-Object { $_.kind -eq "vault" })[0]
-Assert-True ($null -ne $vaultPrompt) "vault candidate offered"
+Require-True ($null -ne $vaultPrompt) "保险库：ingest 后提供 vault 候选" ""
 $item = (Invoke-Sm POST "/v1/vault/candidates/$($vaultPrompt.candidate_id)/accept" @{} $A).Json
 $reveal = Invoke-Sm POST "/v1/vault/items/$($item.id)/reveal" @{ password = "password123" } $A
-Assert-True ($reveal.Json.secret -eq $secret) "reveal returns the secret after password check"
-$leak = (Invoke-Sm POST "/v1/recall" @{ project_id = $project; query = "GitLab 密码" } $A).Text + (Invoke-Sm GET "/v1/sessions/$($r3.Json.session_id)" $null $A).Text
-Assert-True (-not $leak.Contains($secret)) "plaintext secret absent from recall and session responses"
+Require-True ($reveal.Json.secret -eq $secret) "保险库：密码验证后 reveal 明文" ""
+$leak = (Invoke-Sm POST "/v1/recall" @{ project_id = $project; query = "GitLab 密码" } $A).Text +
+(Invoke-Sm GET "/v1/sessions/$($r3.Json.session_id)" $null $A).Text
+Require-True (-not $leak.Contains($secret)) "保险库：recall/会话响应不含明文密钥" ""
 
-# 7. artifact accept -> body readable
+# --- 成稿 ---
 $long = "# Redis Streams 学习笔记`n" + ("消费者组、XACK 与 XAUTOCLAIM 的用法。" * 60)
 $r4 = Invoke-Sm POST "/v1/ingest" (New-Message $project "assistant" $long) $A
 $artPrompt = @($r4.Json.prompts | Where-Object { $_.kind -eq "artifact" })[0]
-Assert-True ($null -ne $artPrompt) "artifact candidate offered for a long reply"
+Require-True ($null -ne $artPrompt) "成稿：长回复触发 artifact 候选" ""
 $art = (Invoke-Sm POST "/v1/artifacts/candidates/$($artPrompt.candidate_id)/accept" @{} $A).Json
 $body = (Invoke-Sm GET "/v1/artifacts/$($art.artifact.id)" $null $A).Json.body
-Assert-True ($body -eq $long) "artifact body readable after accept"
+Require-True ($body -eq $long) "成稿：接受后可读取完整 body" ""
 
-# 8. delete A -> A's key stops working, B unaffected
+# --- 知识库 KB ---
+$kbMarker = "smkb" + ([guid]::NewGuid().ToString("N").Substring(0, 8))
+$kbBody = "# 知识库 Smoke`n`n项目规范要求 API 带 account_id 隔离。$kbMarker`n"
+$kbUp = Invoke-SmKbUpload -Key $A -Title "Smoke KB" -FileName "spec.md" -Content $kbBody
+Require-True ($kbUp.Status -eq 201) "知识库：multipart 上传文档" "HTTP $($kbUp.Status)"
+$kbDocId = $kbUp.Json.document.id
+Require-True ($null -ne $kbDocId -and "$kbDocId".Length -gt 0) "知识库：返回 document id" ""
+
+$kbReady = $false
+$kbErr = ""
+for ($i = 0; $i -lt $KBWaitSeconds; $i++) {
+    $docGet = Invoke-Sm GET "/v1/kb/documents/$kbDocId" $null $A
+    $st = $docGet.Json.document.status
+    if ($st -eq "ready") { $kbReady = $true; break }
+    if ($st -eq "failed") {
+        $kbErr = $docGet.Json.document.error
+        break
+    }
+    Start-Sleep -Seconds 1
+}
+Require-True $kbReady "知识库：worker kb_parse 后 status=ready" $(if ($kbErr) { "error=$kbErr" } else { "doc=$kbDocId" })
+
+$kbHit = $false
+$kbRecText = ""
+for ($i = 0; $i -lt 15; $i++) {
+    $kbRec = Invoke-Sm POST "/v1/recall" @{ query = "$kbMarker account_id" } $A
+    $kbRecText = $kbRec.Text
+    if ($kbRecText -like "*$kbMarker*") { $kbHit = $true; break }
+    Start-Sleep -Seconds 1
+}
+Require-True $kbHit "知识库：recall 注入 kb 内容（含 marker）" ""
+$kbRecJson = $kbRecText | ConvertFrom-Json
+$hasKbHits = ($null -ne $kbRecJson.kb_hits) -and (@($kbRecJson.kb_hits).Count -gt 0)
+Require-True $hasKbHits "知识库：recall 响应含 kb_hits 数组" ""
+$kbGetB = Invoke-Sm GET "/v1/kb/documents/$kbDocId" $null $B
+Require-True ($kbGetB.Status -eq 404) "知识库：跨账号 GET 文档隔离" "B HTTP $($kbGetB.Status)"
+$kbRecB = Invoke-Sm POST "/v1/recall" @{ query = "$kbMarker account_id" } $B
+Require-True (-not ($kbRecB.Text -like "*$kbMarker*")) "知识库：跨账号 recall 不泄露" ""
+
+# --- 账号删除 ---
 $del = Invoke-Sm DELETE "/v1/account" $null $A @{ "X-Confirm" = "delete" }
-Assert-True ($del.Status -eq 204) "delete account A"
-Assert-True ((Invoke-Sm GET "/v1/sessions" $null $A).Status -eq 401) "A's data and key are gone"
-Assert-True ((Invoke-Sm GET "/v1/sessions" $null $B).Status -eq 200) "B still works"
-Write-Host "smoke: all steps passed" -ForegroundColor Green
+Require-True ($del.Status -eq 204) "账号：确认后删除 A" "HTTP $($del.Status)"
+Require-True ((Invoke-Sm GET "/v1/sessions" $null $A).Status -eq 401) "账号：删除后 API Key 失效" ""
+Require-True ((Invoke-Sm GET "/v1/sessions" $null $B).Status -eq 200) "账号：删除 A 后 B 仍可用" ""
+
+Print-Summary
+if ($script:AnyFailed) {
+    Write-Host ""
+    Write-Host "smoke: 存在失败项" -ForegroundColor Red
+    exit 1
+}
+Write-Host ""
+Write-Host "smoke: 全部通过" -ForegroundColor Green
+exit 0

@@ -1,11 +1,16 @@
 package httpapi
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
 	"sharedmemory/internal/attachment"
+	"sharedmemory/internal/quarantine"
+	"sharedmemory/internal/session"
 )
 
 type provenanceStat struct {
@@ -76,6 +81,57 @@ func (r *Router) handleListQuarantine(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (r *Router) handleReplayQuarantine(w http.ResponseWriter, req *http.Request) {
+	if r.Quarantine == nil || r.Sessions == nil {
+		writeError(w, http.StatusNotImplemented, "quarantine replay unavailable")
+		return
+	}
+	id, ok := pathID(w, req)
+	if !ok {
+		return
+	}
+	accountID := accountOf(req)
+	entry, err := r.Quarantine.Get(req.Context(), accountID, id)
+	if err != nil {
+		if errors.Is(err, quarantine.ErrNotFound) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		fail(w, err)
+		return
+	}
+	var body session.IngestMessageRequest
+	raw, _ := io.ReadAll(io.LimitReader(req.Body, 1<<20))
+	trimmed := bytes.TrimSpace(raw)
+	// Clients often POST "{}"; treat empty / null / {} as "use stored payload".
+	useStored := len(trimmed) == 0 || string(trimmed) == "{}" || string(trimmed) == "null"
+	if useStored {
+		if err := json.Unmarshal(entry.Payload, &body); err != nil {
+			writeError(w, http.StatusBadRequest, "stored payload is not a valid ingest body")
+			return
+		}
+	} else if err := json.Unmarshal(trimmed, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	res, err := r.Sessions.Ingest(req.Context(), accountID, body)
+	if err != nil {
+		if errors.Is(err, session.ErrInvalid) {
+			_ = r.Quarantine.UpdateReason(req.Context(), accountID, id, err.Error())
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		fail(w, err)
+		return
+	}
+	_ = r.Quarantine.Delete(req.Context(), accountID, id)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"replayed":   true,
+		"session_id": res.SessionID,
+		"message_id": res.MessageID,
+	})
 }
 
 func (r *Router) handleListEntities(w http.ResponseWriter, req *http.Request) {

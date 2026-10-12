@@ -50,6 +50,26 @@ func (r *Router) handleListRecallReceipts(w http.ResponseWriter, req *http.Reque
 	writeJSON(w, http.StatusOK, list)
 }
 
+func (r *Router) handleCheckRecallReceipt(w http.ResponseWriter, req *http.Request) {
+	q := req.URL.Query()
+	sessionID, ok := optionalUUID(w, q.Get("session_id"), "session_id")
+	if !ok {
+		return
+	}
+	within, _ := strconv.Atoi(q.Get("within_minutes"))
+	ext := q.Get("external_session_id")
+	if ext == "" && sessionID == nil {
+		writeError(w, http.StatusBadRequest, "external_session_id or session_id is required")
+		return
+	}
+	check, err := r.Recall.CheckReceipt(req.Context(), accountOf(req), ext, sessionID, within)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, check)
+}
+
 func (r *Router) handleListMemories(w http.ResponseWriter, req *http.Request) {
 	q := req.URL.Query()
 	projectID, ok := optionalUUID(w, q.Get("project_id"), "project_id")

@@ -209,8 +209,50 @@ func Status(ctx context.Context, out io.Writer) error {
 
 	if c, err := cred.Resolve(); err == nil && c.APIKey != "" {
 		printProvenanceStats(ctx, out, c.APIURL, c.APIKey)
+		printRecentReceipts(ctx, out, c.APIURL, c.APIKey)
 	}
 	return nil
+}
+
+func printRecentReceipts(ctx context.Context, out io.Writer, apiURL, apiKey string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiURL, "/")+"/v1/recall/receipts?limit=5", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	res, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
+	if err != nil {
+		fmt.Fprintf(out, "recall_receipts: unreachable\n")
+		return
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 300 {
+		fmt.Fprintf(out, "recall_receipts: http %s\n", res.Status)
+		return
+	}
+	var list []struct {
+		QueriedAt time.Time `json:"queried_at"`
+		Agent     string    `json:"agent"`
+		HitCount  int       `json:"hit_count"`
+		Degraded  bool      `json:"degraded"`
+		Source    string    `json:"source"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil {
+		return
+	}
+	if len(list) == 0 {
+		fmt.Fprintln(out, "recall_receipts: none recent")
+		return
+	}
+	fmt.Fprintln(out, "recall_receipts (recent):")
+	for _, r := range list {
+		deg := "ok"
+		if r.Degraded {
+			deg = "degraded"
+		}
+		fmt.Fprintf(out, "  %s agent=%s hits=%d %s source=%s\n",
+			r.QueriedAt.UTC().Format(time.RFC3339), r.Agent, r.HitCount, deg, r.Source)
+	}
 }
 
 func printProvenanceStats(ctx context.Context, out io.Writer, apiURL, apiKey string) {

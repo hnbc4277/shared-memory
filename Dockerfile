@@ -7,6 +7,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+COPY sdk ./sdk
 RUN go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
  && go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker \
  && go build -trimpath -ldflags="-s -w" -o /out/mcp ./cmd/mcp

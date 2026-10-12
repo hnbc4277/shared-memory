@@ -3,9 +3,12 @@ package quarantine
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -13,6 +16,8 @@ import (
 type Store struct {
 	Pool *pgxpool.Pool
 }
+
+var ErrNotFound = errors.New("not found: quarantine entry")
 
 type Entry struct {
 	ID        uuid.UUID       `json:"id"`
@@ -56,4 +61,51 @@ func (s *Store) List(ctx context.Context, accountID uuid.UUID, limit int) ([]Ent
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) Get(ctx context.Context, accountID, id uuid.UUID) (Entry, error) {
+	if s == nil || s.Pool == nil {
+		return Entry{}, fmt.Errorf("quarantine: pool required")
+	}
+	var e Entry
+	err := s.Pool.QueryRow(ctx, `
+		SELECT id, account_id, COALESCE(agent,''), COALESCE(agent_path,''), reason, payload, created_at
+		FROM ingest_quarantine WHERE account_id = $1 AND id = $2`, accountID, id).
+		Scan(&e.ID, &e.AccountID, &e.Agent, &e.AgentPath, &e.Reason, &e.Payload, &e.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Entry{}, ErrNotFound
+	}
+	if err != nil {
+		return Entry{}, err
+	}
+	return e, nil
+}
+
+func (s *Store) Delete(ctx context.Context, accountID, id uuid.UUID) error {
+	if s == nil || s.Pool == nil {
+		return fmt.Errorf("quarantine: pool required")
+	}
+	tag, err := s.Pool.Exec(ctx, `DELETE FROM ingest_quarantine WHERE account_id = $1 AND id = $2`, accountID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) UpdateReason(ctx context.Context, accountID, id uuid.UUID, reason string) error {
+	if s == nil || s.Pool == nil {
+		return fmt.Errorf("quarantine: pool required")
+	}
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE ingest_quarantine SET reason = $3 WHERE account_id = $1 AND id = $2`, accountID, id, reason)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
