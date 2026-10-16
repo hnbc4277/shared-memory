@@ -70,11 +70,14 @@ func (e *TEIEmbedder) embed(ctx context.Context, text string) ([]float32, error)
 	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, fmt.Errorf("embedder response: %w", err)
 	}
-	if len(out) != 1 || len(out[0]) != e.dim {
-		got := 0
-		if len(out) > 0 {
-			got = len(out[0])
-		}
+	if len(out) != 1 {
+		return nil, fmt.Errorf("embedder: expected 1 vector, got %d", len(out))
+	}
+	got := len(out[0])
+	if got == 0 {
+		return nil, fmt.Errorf("embedder returned dim 0, want positive")
+	}
+	if e.dim > 0 && got != e.dim {
 		return nil, fmt.Errorf("embedder returned dim %d, want %d", got, e.dim)
 	}
 	return out[0], nil
