@@ -41,6 +41,25 @@ func (s *Store) Get(ctx context.Context, accountID uuid.UUID) (Settings, error) 
 	return st, nil
 }
 
+// PlainAPIKey returns the decrypted API key when stored; otherwise "".
+func (s *Store) PlainAPIKey(ctx context.Context, accountID uuid.UUID) (string, error) {
+	var ct, nonce []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT api_key_ciphertext, api_key_nonce
+		FROM account_embedding_settings WHERE account_id = $1`, accountID,
+	).Scan(&ct, &nonce)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read embedding api key: %w", err)
+	}
+	if len(ct) == 0 || len(nonce) == 0 {
+		return "", nil
+	}
+	return s.cipher.Decrypt(accountID, ct, nonce)
+}
+
 // Upsert replaces the row for accountID. When apiKeyPlain is omitted, any
 // existing encrypted key is kept. A single empty string clears the stored key.
 func (s *Store) Upsert(ctx context.Context, accountID uuid.UUID, st Settings, apiKeyPlain ...string) error {
