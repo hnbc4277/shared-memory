@@ -27,9 +27,12 @@ type Config struct {
 	CORSOrigins []string
 	// EmbedderURL points at a text-embeddings-inference server; empty selects
 	// the offline hash embedder.
-	EmbedderURL   string
-	EmbedderModel string
-	EmbedderDim   int
+	EmbedderURL      string
+	EmbedderModel    string
+	EmbedderDim      int
+	EmbedderProtocol string // tei | openai; default tei
+	EmbedderAPIKey   string
+	EmbedderMaxDim   int // default 4096
 	// VectorMinScore overrides the embedder's default cosine cut-off when > 0.
 	VectorMinScore float64
 	// OCRLangs are tesseract language packs for image attachments; empty disables OCR.
@@ -44,6 +47,18 @@ type Config struct {
 	VisionModel  string
 	// RecallReceiptRetentionDays is how long recall_receipts are kept; default 30.
 	RecallReceiptRetentionDays int
+	// AgentHeartbeatOnlineSec: device last_seen within this window → online (default 90).
+	AgentHeartbeatOnlineSec int
+	// AgentActivityOnlineMin: ingest/recall within this window → online (default 15).
+	AgentActivityOnlineMin int
+	// WebStaticDir, when set, serves the built console (e.g. web/dist) from the API process.
+	WebStaticDir string
+	// RateLimitPerMin caps authenticated hot paths per account per minute (0 = default 120).
+	RateLimitPerMin int
+	// AuthRateLimitPerMin caps login/register per IP per minute (0 = default 20).
+	AuthRateLimitPerMin int
+	// AuthEmailRateLimitPerMin caps login per email per minute (0 = disabled).
+	AuthEmailRateLimitPerMin int
 }
 
 func Load(path string) (Config, error) {
@@ -76,9 +91,11 @@ func Load(path string) (Config, error) {
 		OpenSearchURL:  vals["OPENSEARCH_URL"],
 		QdrantURL:      vals["QDRANT_URL"],
 		VaultMasterKey: vals["VAULT_MASTER_KEY"],
-		EmbedderURL:    vals["EMBEDDER_URL"],
-		EmbedderModel:  "bge-small-zh-v1.5",
-		EmbedderDim:    512,
+		EmbedderURL:      vals["EMBEDDER_URL"],
+		EmbedderModel:    "bge-small-zh-v1.5",
+		EmbedderDim:      512,
+		EmbedderProtocol: "tei",
+		EmbedderMaxDim:   4096,
 		OCRLangs:         vals["OCR_LANGS"],
 		LLMDeriverURL:    vals["LLM_DERIVER_URL"],
 		LLMDeriverAPIKey: vals["LLM_DERIVER_API_KEY"],
@@ -86,7 +103,48 @@ func Load(path string) (Config, error) {
 		VisionURL:        vals["VISION_URL"],
 		VisionAPIKey:     vals["VISION_API_KEY"],
 		VisionModel:      firstNonEmpty(vals["VISION_MODEL"], "gpt-4o-mini"),
-		RecallReceiptRetentionDays: 30,
+		RecallReceiptRetentionDays:  30,
+		AgentHeartbeatOnlineSec:     90,
+		AgentActivityOnlineMin:      15,
+		WebStaticDir:                vals["WEB_STATIC_DIR"],
+		RateLimitPerMin:             120,
+		AuthRateLimitPerMin:         20,
+		AuthEmailRateLimitPerMin:    10,
+	}
+	if v := vals["RATE_LIMIT_PER_MIN"]; v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return Config{}, fmt.Errorf("invalid RATE_LIMIT_PER_MIN: %q", v)
+		}
+		cfg.RateLimitPerMin = n
+	}
+	if v := vals["AUTH_RATE_LIMIT_PER_MIN"]; v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return Config{}, fmt.Errorf("invalid AUTH_RATE_LIMIT_PER_MIN: %q", v)
+		}
+		cfg.AuthRateLimitPerMin = n
+	}
+	if v := vals["AUTH_EMAIL_RATE_LIMIT_PER_MIN"]; v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return Config{}, fmt.Errorf("invalid AUTH_EMAIL_RATE_LIMIT_PER_MIN: %q", v)
+		}
+		cfg.AuthEmailRateLimitPerMin = n
+	}
+	if v := vals["AGENT_HEARTBEAT_ONLINE_SEC"]; v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return Config{}, fmt.Errorf("invalid AGENT_HEARTBEAT_ONLINE_SEC: %q", v)
+		}
+		cfg.AgentHeartbeatOnlineSec = n
+	}
+	if v := vals["AGENT_ACTIVITY_ONLINE_MIN"]; v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return Config{}, fmt.Errorf("invalid AGENT_ACTIVITY_ONLINE_MIN: %q", v)
+		}
+		cfg.AgentActivityOnlineMin = n
 	}
 	if v := vals["RECALL_RECEIPT_RETENTION_DAYS"]; v != "" {
 		n, err := strconv.Atoi(v)
@@ -107,6 +165,22 @@ func Load(path string) (Config, error) {
 			return Config{}, fmt.Errorf("invalid EMBEDDER_DIM: %q", v)
 		}
 		cfg.EmbedderDim = n
+	}
+	cfg.EmbedderAPIKey = vals["EMBEDDER_API_KEY"]
+	if v := vals["EMBEDDER_PROTOCOL"]; v != "" {
+		switch v {
+		case "tei", "openai":
+			cfg.EmbedderProtocol = v
+		default:
+			return Config{}, fmt.Errorf("invalid EMBEDDER_PROTOCOL: %q", v)
+		}
+	}
+	if v := vals["EMBEDDER_MAX_DIM"]; v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return Config{}, fmt.Errorf("invalid EMBEDDER_MAX_DIM: %q", v)
+		}
+		cfg.EmbedderMaxDim = n
 	}
 	if v := vals["VECTOR_MIN_SCORE"]; v != "" {
 		f, err := strconv.ParseFloat(v, 64)

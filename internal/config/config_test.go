@@ -81,3 +81,32 @@ func TestLoad_EmbedderSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestLoad_EmbedderProtocolAndMaxDim(t *testing.T) {
+	write := func(t *testing.T, extra string) string {
+		p := filepath.Join(t.TempDir(), ".env")
+		if err := os.WriteFile(p, []byte("HTTP_ADDR=:1\nPOSTGRES_DSN=postgres://x\n"+extra), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	cfg, err := config.Load(write(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EmbedderProtocol != "tei" || cfg.EmbedderMaxDim != 4096 || cfg.EmbedderAPIKey != "" {
+		t.Fatalf("defaults: %+v", cfg)
+	}
+	cfg, err = config.Load(write(t, "EMBEDDER_PROTOCOL=openai\nEMBEDDER_API_KEY=sk-test\nEMBEDDER_MAX_DIM=8192\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EmbedderProtocol != "openai" || cfg.EmbedderAPIKey != "sk-test" || cfg.EmbedderMaxDim != 8192 {
+		t.Fatalf("parsed: %+v", cfg)
+	}
+	for _, bad := range []string{"EMBEDDER_PROTOCOL=ollama\n", "EMBEDDER_MAX_DIM=0\n", "EMBEDDER_MAX_DIM=-1\n"} {
+		if _, err := config.Load(write(t, bad)); err == nil {
+			t.Fatalf("%q must be rejected", bad)
+		}
+	}
+}
