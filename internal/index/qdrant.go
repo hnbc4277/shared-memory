@@ -55,6 +55,19 @@ func NewQdrant(baseURL, collection string, dim int) *Qdrant {
 		MinScore: DefaultMinScore, http: &http.Client{Timeout: 10 * time.Second}}
 }
 
+func (q *Qdrant) ForCollection(name string, dim int) *Qdrant {
+	if name == "" {
+		name = DefaultCollection
+	}
+	return &Qdrant{
+		baseURL:    q.baseURL,
+		collection: name,
+		dim:        dim,
+		MinScore:   q.MinScore,
+		http:       q.http,
+	}
+}
+
 func (q *Qdrant) do(ctx context.Context, method, path string, body any) ([]byte, int, error) {
 	var rdr io.Reader
 	if body != nil {

@@ -20,6 +20,7 @@ type Service struct {
 	Text     TextIndex
 	Vector   VectorIndex
 	Embedder semantic.Embedder
+	Resolver *semantic.Resolver
 }
 
 func (s *Service) Ensure(ctx context.Context) error {
@@ -38,14 +39,45 @@ func (s *Service) IndexDoc(ctx context.Context, d Doc) error {
 	if s.Text != nil {
 		errs = append(errs, s.Text.Index(ctx, d))
 	}
-	if s.Vector != nil {
+	if s.Vector == nil {
+		return errors.Join(errs...)
+	}
+	if s.Resolver == nil {
 		vec, err := s.Embedder.Embed(ctx, d.Body)
 		if err != nil {
 			errs = append(errs, err)
 		} else {
 			errs = append(errs, s.Vector.Upsert(ctx, d, vec))
 		}
+		return errors.Join(errs...)
 	}
+	res, err := s.Resolver.ForAccount(ctx, d.AccountID)
+	if err != nil {
+		errs = append(errs, err)
+		return errors.Join(errs...)
+	}
+	if res.ReindexRequired {
+		return errors.Join(errs...)
+	}
+	qdr, ok := s.Vector.(*Qdrant)
+	if !ok {
+		return errors.Join(errs...)
+	}
+	coll := res.Collection
+	if coll == "" && res.Source == "hash" {
+		coll = semantic.CollectionName(d.AccountID, res.Model, res.Dim)
+	}
+	q := qdr.ForCollection(coll, res.Dim)
+	if err := q.Ensure(ctx); err != nil {
+		errs = append(errs, err)
+		return errors.Join(errs...)
+	}
+	vec, err := res.Embedder.Embed(ctx, d.Body)
+	if err != nil {
+		errs = append(errs, err)
+		return errors.Join(errs...)
+	}
+	errs = append(errs, q.Upsert(ctx, d, vec))
 	return errors.Join(errs...)
 }
 
@@ -63,24 +95,62 @@ func (s *Service) Search(ctx context.Context, q Query) ([]Hit, error) {
 		}()
 	}
 	if s.Vector != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var vec []float32
-			var err error
-			if qe, ok := s.Embedder.(semantic.QueryEmbedder); ok {
-				vec, err = qe.EmbedQuery(ctx, q.Text)
-			} else {
-				vec, err = s.Embedder.Embed(ctx, q.Text)
-			}
+		if s.Resolver != nil {
+			res, err := s.Resolver.ForAccount(ctx, q.AccountID)
 			if err != nil {
-				vecErr = err
-				return
+				wg.Wait()
+				return Fuse(q.Limit, textHits, vHits), errors.Join(textErr, err)
 			}
-			vq := q
-			vq.Vector = vec
-			vHits, vecErr = s.Vector.Search(ctx, vq)
-		}()
+			if res.ReindexRequired {
+				wg.Wait()
+				return Fuse(q.Limit, textHits, nil), textErr
+			}
+			if qdr, ok := s.Vector.(*Qdrant); ok {
+				coll := res.Collection
+				if coll == "" && res.Source == "hash" {
+					coll = semantic.CollectionName(q.AccountID, res.Model, res.Dim)
+				}
+				vecIdx := qdr.ForCollection(coll, res.Dim)
+				embedder := res.Embedder
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					var vec []float32
+					var err error
+					if qe, ok := embedder.(semantic.QueryEmbedder); ok {
+						vec, err = qe.EmbedQuery(ctx, q.Text)
+					} else {
+						vec, err = embedder.Embed(ctx, q.Text)
+					}
+					if err != nil {
+						vecErr = err
+						return
+					}
+					vq := q
+					vq.Vector = vec
+					vHits, vecErr = vecIdx.Search(ctx, vq)
+				}()
+			}
+		} else {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				var vec []float32
+				var err error
+				if qe, ok := s.Embedder.(semantic.QueryEmbedder); ok {
+					vec, err = qe.EmbedQuery(ctx, q.Text)
+				} else {
+					vec, err = s.Embedder.Embed(ctx, q.Text)
+				}
+				if err != nil {
+					vecErr = err
+					return
+				}
+				vq := q
+				vq.Vector = vec
+				vHits, vecErr = s.Vector.Search(ctx, vq)
+			}()
+		}
 	}
 	wg.Wait()
 	return Fuse(q.Limit, textHits, vHits), errors.Join(textErr, vecErr)
