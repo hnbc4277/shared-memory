@@ -12,7 +12,8 @@ import (
 // Configure in an MCP client, e.g.:
 //
 //	{"command": "shared-memory-mcp", "env": {"SHARED_MEMORY_API_KEY": "sm_...",
-//	  "SHARED_MEMORY_API_URL": "http://127.0.0.1:18080", "SHARED_MEMORY_AGENT": "cursor"}}
+//	  "SHARED_MEMORY_API_URL": "http://127.0.0.1:18080", "SHARED_MEMORY_AGENT": "cursor",
+//	  "SHARED_MEMORY_CONNECTION_ID": "<connection-uuid>"}}
 func main() {
 	log.SetOutput(os.Stderr)
 	key := os.Getenv("SHARED_MEMORY_API_KEY")
@@ -26,9 +27,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	s := &mcp.Server{
-		Client:       &mcp.Client{BaseURL: base, APIKey: key},
-		DefaultAgent: os.Getenv("SHARED_MEMORY_AGENT"),
-		Version:      "0.1.0",
+		Client:              &mcp.Client{BaseURL: base, APIKey: key},
+		DefaultAgent:        os.Getenv("SHARED_MEMORY_AGENT"),
+		DefaultConnectionID: os.Getenv("SHARED_MEMORY_CONNECTION_ID"),
+		Version:             "0.1.0",
 	}
 	if err := s.Serve(ctx, os.Stdin, os.Stdout); err != nil {
 		log.Fatal(err)
