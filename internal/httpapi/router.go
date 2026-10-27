@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"sharedmemory/internal/account"
+	"sharedmemory/internal/agents"
 	"sharedmemory/internal/artifact"
 	"sharedmemory/internal/attachment"
 	"sharedmemory/internal/audit"
@@ -25,30 +26,41 @@ import (
 	"sharedmemory/internal/quarantine"
 	"sharedmemory/internal/ratelimit"
 	"sharedmemory/internal/recall"
+	"sharedmemory/internal/semantic"
 	"sharedmemory/internal/session"
 	"sharedmemory/internal/vault"
 )
 
 type Deps struct {
-	Pool        *pgxpool.Pool
-	Auth        *auth.Store
-	Projects    *project.Store
-	Policies    *policy.Store
-	Sessions    *session.Service
-	Attachments *attachment.Service
-	Memories    *memory.Store
-	Recall      *recall.Service
-	Vault       *vault.Store
-	Artifacts   *artifact.Store
-	Audit       *audit.Log
-	Deleter     *account.Deleter
-	Index       *index.Service
-	Devices     *device.Store
-	Quarantine  *quarantine.Store
-	Entities    *entity.Store
-	KB          *kb.Store
-	RateLimit   *ratelimit.Limiter
-	CORSOrigins []string
+	Pool          *pgxpool.Pool
+	Auth          *auth.Store
+	Projects      *project.Store
+	Policies      *policy.Store
+	Sessions      *session.Service
+	Attachments   *attachment.Service
+	Memories      *memory.Store
+	Recall        *recall.Service
+	Vault         *vault.Store
+	Artifacts     *artifact.Store
+	Audit         *audit.Log
+	Deleter       *account.Deleter
+	Index         *index.Service
+	Devices       *device.Store
+	Quarantine    *quarantine.Store
+	Entities      *entity.Store
+	KB            *kb.Store
+	Agents        *agents.Store
+	Embedding     EmbeddingSettings
+	EmbedResolver *semantic.Resolver
+	EmbedMaxDim   int
+	Reindexer     AccountReindexer
+	RateLimit     *ratelimit.Limiter
+	CORSOrigins   []string
+	WebStaticDir  string
+	// DownloadsDir serves smhook.exe / shared-memory-mcp.exe at GET /downloads/* (no auth).
+	DownloadsDir string
+	// PublicAPIURL is baked into Cursor setup scripts (external host:port).
+	PublicAPIURL string
 }
 
 type Router struct {
@@ -71,6 +83,7 @@ func NewRouter(d Deps) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("GET /downloads/{name}", r.handlePublicDownload)
 	mux.HandleFunc("POST /v1/auth/register", r.handleRegister)
 	mux.HandleFunc("POST /v1/auth/login", r.handleLogin)
 	mux.HandleFunc("POST /v1/device/code", r.handleDeviceCode)
@@ -92,19 +105,37 @@ func NewRouter(d Deps) http.Handler {
 	handle("DELETE /v1/projects/{id}", r.handleDeleteProject)
 	handle("GET /v1/policy", r.handleGetPolicy)
 	handle("PUT /v1/policy", r.handlePutPolicy)
+	handle("GET /v1/embedding-settings", r.handleGetEmbeddingSettings)
+	handle("PUT /v1/embedding-settings", r.handlePutEmbeddingSettings)
+	handle("DELETE /v1/embedding-settings", r.handleDeleteEmbeddingSettings)
+	handle("POST /v1/embedding-settings/probe", r.handleProbeEmbeddingSettings)
+	handle("POST /v1/embedding-settings/reindex", r.handleReindexEmbeddingSettings)
 	handle("GET /v1/audit", r.handleListAudit)
 	handle("DELETE /v1/account", r.handleDeleteAccount)
 
 	handleRL("POST /v1/ingest", "ingest", r.handleIngest)
 	handle("GET /v1/sessions", r.handleListSessions)
 	handle("GET /v1/sessions/{id}", r.handleGetSession)
-	handle("POST /v1/attachments", r.handleUploadAttachment)
+	handleRL("POST /v1/attachments", "attachment_upload", r.handleUploadAttachment)
 	handle("GET /v1/attachments/{id}", r.handleGetAttachment)
 	handle("GET /v1/attachments/{id}/thumbnail", r.handleGetAttachmentThumb)
 	handle("GET /v1/quarantine", r.handleListQuarantine)
 	handle("POST /v1/quarantine/{id}/replay", r.handleReplayQuarantine)
 	handle("GET /v1/entities", r.handleListEntities)
+	handle("POST /v1/entities", r.handleCreateEntity)
+	handle("PATCH /v1/entities/{id}", r.handlePatchEntity)
+	handle("DELETE /v1/entities/{id}", r.handleDeleteEntity)
 	handle("GET /v1/provenance/stats", r.handleProvenanceStats)
+
+	handle("GET /v1/agents", r.handleListAgents)
+	handle("GET /v1/agents/stream", r.handleAgentsStream)
+	handle("POST /v1/agents/connections", r.handleCreateAgentConnection)
+	handle("POST /v1/agents/connections/heartbeat", r.handleAgentsHeartbeat)
+	handle("PATCH /v1/agents/connections/{id}", r.handlePatchAgentConnection)
+	handle("DELETE /v1/agents/connections/{id}", r.handleDeleteAgentConnection)
+	handle("POST /v1/agents/connections/{id}/upgrade", r.handleUpgradeAgentConnection)
+	handle("POST /v1/agents/connections/{id}/claim-history", r.handleClaimAgentHistory)
+	handle("GET /v1/agents/connections/{id}/setup-script", r.handleDownloadConnectionSetupScript)
 
 	handleRL("POST /v1/recall", "recall", r.handleRecall)
 	handle("GET /v1/recall/receipts", r.handleListRecallReceipts)
@@ -141,7 +172,7 @@ func NewRouter(d Deps) http.Handler {
 	handle("DELETE /v1/kb/documents/{id}", r.handleDeleteKBDocument)
 	handle("POST /v1/kb/documents/{id}/reparse", r.handleReparseKBDocument)
 
-	return CORS(d.CORSOrigins)(mux)
+	return CORS(d.CORSOrigins)(withWebStatic(d.WebStaticDir, mux))
 }
 
 type errorBody struct {
@@ -166,8 +197,11 @@ func fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, session.ErrNotFound), errors.Is(err, project.ErrNotFound),
 		errors.Is(err, vault.ErrNotFound), errors.Is(err, artifact.ErrNotFound),
 		errors.Is(err, memory.ErrNotFound), errors.Is(err, attachment.ErrNotFound),
-		errors.Is(err, account.ErrNotFound), errors.Is(err, kb.ErrNotFound):
+		errors.Is(err, account.ErrNotFound), errors.Is(err, kb.ErrNotFound),
+		errors.Is(err, agents.ErrNotFound), errors.Is(err, entity.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, entity.ErrConflict):
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, attachment.ErrUnsupportedType), errors.Is(err, kb.ErrUnsupportedType):
 		writeError(w, http.StatusUnsupportedMediaType, err.Error())
 	case errors.Is(err, attachment.ErrTooLarge), errors.Is(err, kb.ErrTooLarge):
