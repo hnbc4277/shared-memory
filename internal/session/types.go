@@ -26,6 +26,7 @@ type IngestMessageRequest struct {
 	AttachmentIDs       []string   `json:"attachment_ids"`
 	StoreTranscriptMark bool       `json:"store_transcript_mark"`
 	ArtifactOffer       bool       `json:"artifact_offer"`
+	ConnectionID        string     `json:"connection_id,omitempty"`
 }
 
 // ToolCall records one plugin/tool invocation with timing and truncated output.

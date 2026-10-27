@@ -39,6 +39,7 @@ type Request struct {
 	Agent             string     `json:"agent,omitempty"`
 	AgentPath         string     `json:"agent_path,omitempty"`
 	Source            string     `json:"source,omitempty"`
+	ConnectionID      string     `json:"connection_id,omitempty"`
 }
 
 type Item struct {
