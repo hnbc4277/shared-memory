@@ -289,6 +289,92 @@ function Prompt-IfEmpty([string]$current, [string]$label, [switch]$Secret) {
   return (Read-Host -Prompt $label).Trim()
 }
 
+function Get-ShortConnectionId([string]$ConnectionId) {
+  $id = [string]$ConnectionId
+  $id = $id -replace '-', ''
+  if ([string]::IsNullOrWhiteSpace($id)) { return 'cursor' }
+  if ($id.Length -gt 12) { $id = $id.Substring(0, 12) }
+  return $id.ToLowerInvariant()
+}
+
+function Get-HeartbeatTaskName([string]$ConnectionId) {
+  return "SharedMemoryHeartbeat-$(Get-ShortConnectionId $ConnectionId)"
+}
+
+function Stop-HeartbeatScriptProcess([string]$ScriptPath) {
+  if ([string]::IsNullOrWhiteSpace($ScriptPath)) { return }
+  $leaf = [System.IO.Path]::GetFileName($ScriptPath)
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
+    $cl = [string]$_.CommandLine
+    if ($cl -and ($cl -like "*$leaf*")) {
+      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Uninstall-ConnectionHeartbeat {
+  param([string]$ConnectionId, [string]$HeartbeatScriptPath)
+  $taskName = Get-HeartbeatTaskName $ConnectionId
+  $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  if ($task) {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    Write-Ok "已移除计划任务: $taskName"
+  }
+  Stop-HeartbeatScriptProcess -ScriptPath $HeartbeatScriptPath
+}
+
+function New-HeartbeatScriptContent {
+  param([string]$ApiUrl, [string]$ApiKey, [string]$ConnectionId)
+  $u = $ApiUrl.TrimEnd('/').Replace("'", "''")
+  $k = $ApiKey.Replace("'", "''")
+  $c = $ConnectionId.Replace("'", "''")
+  return @"
+#Requires -Version 5.1
+Set-StrictMode -Version Latest
+`$ApiUrl = '$u'
+`$ApiKey = '$k'
+`$ConnectionId = '$c'
+while (`$true) {
+  try {
+    Invoke-RestMethod -Method Post -Uri "`$ApiUrl/v1/agents/connections/heartbeat" `
+      -Headers @{ Authorization = "Bearer `$ApiKey" } `
+      -ContentType "application/json" `
+      -Body (@{ client = "setup"; connection_id = `$ConnectionId } | ConvertTo-Json)
+  } catch {
+    Write-Warning `$_.Exception.Message
+  }
+  Start-Sleep -Seconds 30
+}
+"@
+}
+
+function Install-ConnectionHeartbeat {
+  param(
+    [string]$ApiUrl,
+    [string]$ApiKey,
+    [string]$ConnectionId,
+    [string]$InstallDir
+  )
+  $heartbeatPath = Join-Path $InstallDir "sm-connection-heartbeat.ps1"
+  $taskName = Get-HeartbeatTaskName $ConnectionId
+
+  Uninstall-ConnectionHeartbeat -ConnectionId $ConnectionId -HeartbeatScriptPath $heartbeatPath
+
+  $content = New-HeartbeatScriptContent -ApiUrl $ApiUrl -ApiKey $ApiKey -ConnectionId $ConnectionId
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  [System.IO.File]::WriteAllText($heartbeatPath, $content.TrimStart() + "`n", $utf8)
+  Write-Ok "已写入 $heartbeatPath"
+
+  $arg = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$heartbeatPath`""
+  $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg
+  $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
+  Write-Ok "已注册计划任务: $taskName (登录时运行)"
+
+  Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+}
+
 # --- main ---
 $root = Get-RepoRoot
 # 安装目录：-InstallDir > 环境变量 SHARED_MEMORY_HOME > 当前用户主目录下的 .shared-memory
@@ -413,6 +499,9 @@ if (Test-Path -LiteralPath $mcpPath) {
 }
 Write-JsonFile $mcpPath $mcpRoot
 Write-Ok "已更新 $mcpPath"
+
+Write-Step "连接心跳保活 (sm-connection-heartbeat.ps1)"
+Install-ConnectionHeartbeat -ApiUrl $ApiUrl -ApiKey $ApiKey -ConnectionId $ConnectionId -InstallDir $installDir
 
 Write-Step "写入召回规则"
 $rulesDir = Join-Path $configDir "rules"
