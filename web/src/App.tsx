@@ -11,11 +11,13 @@ import ProjectsPage from "./pages/ProjectsPage";
 import SettingsPage from "./pages/SettingsPage";
 import KeysPage from "./pages/KeysPage";
 import DevicePage from "./pages/DevicePage";
+import AgentsPage from "./pages/AgentsPage";
 
 const KEY_STORAGE = "sm.apiKey";
 
 const TABS = [
   { id: "history", label: "历史", page: HistoryPage },
+  { id: "agents", label: "智能体", page: AgentsPage },
   { id: "memory", label: "记忆", page: MemoryPage },
   { id: "vault", label: "凭证库", page: VaultPage },
   { id: "artifacts", label: "成稿库", page: ArtifactsPage },
@@ -72,6 +74,25 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  const navigateTab = useCallback(
+    (
+      id: string,
+      opts?: {
+        historyAgent?: string;
+        historyConnectionId?: string;
+        receiptConnectionId?: string;
+        agentsConnectionId?: string;
+      },
+    ) => {
+      if (opts?.historyAgent) sessionStorage.setItem("sm.historyAgent", opts.historyAgent);
+      if (opts?.historyConnectionId) sessionStorage.setItem("sm.historyConnectionId", opts.historyConnectionId);
+      if (opts?.receiptConnectionId) sessionStorage.setItem("sm.receiptConnectionId", opts.receiptConnectionId);
+      if (opts?.agentsConnectionId) sessionStorage.setItem("sm.agentsConnectionId", opts.agentsConnectionId);
+      if (TABS.some((t) => t.id === id)) setTab(id as TabId);
+    },
+    [],
+  );
+
   if (!apiKey) {
     return (
       <Login
@@ -83,7 +104,7 @@ export default function App() {
     );
   }
 
-  const ctx: AppCtx = { api, projects, projectId, setProjectId, refreshProjects, notify, logout };
+  const ctx: AppCtx = { api, projects, projectId, setProjectId, refreshProjects, notify, logout, navigateTab };
   const Page = TABS.find((t) => t.id === tab)?.page ?? HistoryPage;
 
   return (

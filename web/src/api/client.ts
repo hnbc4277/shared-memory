@@ -22,7 +22,14 @@ export class ApiError extends Error {
 
 type Fetch = typeof fetch;
 
-export function createClient(base: string, getKey: () => string | null, fetchImpl: Fetch = fetch) {
+export type ClientOptions = { credentials?: RequestCredentials };
+
+export function createClient(
+  base: string,
+  getKey: () => string | null,
+  fetchImpl: Fetch = fetch,
+  options: ClientOptions = {},
+) {
   async function request<T>(
     method: string,
     path: string,
@@ -35,6 +42,7 @@ export function createClient(base: string, getKey: () => string | null, fetchImp
     const resp = await fetchImpl(buildUrl(base, path, opts.query), {
       method,
       headers,
+      credentials: options.credentials,
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     });
     const text = await resp.text();
@@ -49,11 +57,54 @@ export function createClient(base: string, getKey: () => string | null, fetchImp
     }
     return (text ? JSON.parse(text) : undefined) as T;
   }
+
+  async function postForm<T>(path: string, form: FormData): Promise<T> {
+    const headers: Record<string, string> = {};
+    const key = getKey();
+    if (key) headers["Authorization"] = `Bearer ${key}`;
+    const resp = await fetchImpl(buildUrl(base, path), {
+      method: "POST",
+      headers,
+      credentials: options.credentials,
+      body: form,
+    });
+    const text = await resp.text();
+    if (!resp.ok) {
+      let msg = text || resp.statusText;
+      try {
+        msg = JSON.parse(text).error ?? msg;
+      } catch {
+        /* plain */
+      }
+      throw new ApiError(resp.status, msg);
+    }
+    return (text ? JSON.parse(text) : undefined) as T;
+  }
+
+  async function getBlob(path: string, query?: Query): Promise<Blob> {
+    const headers: Record<string, string> = {};
+    const key = getKey();
+    if (key) headers["Authorization"] = `Bearer ${key}`;
+    const resp = await fetchImpl(buildUrl(base, path, query), {
+      method: "GET",
+      headers,
+      credentials: options.credentials,
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new ApiError(resp.status, text || resp.statusText);
+    }
+    return resp.blob();
+  }
+
   return {
     get: <T>(path: string, query?: Query) => request<T>("GET", path, { query }),
     post: <T>(path: string, body?: unknown) => request<T>("POST", path, { body: body ?? {} }),
     put: <T>(path: string, body: unknown) => request<T>("PUT", path, { body }),
+    patch: <T>(path: string, body: unknown) => request<T>("PATCH", path, { body }),
     del: (path: string, headers?: Record<string, string>) => request<void>("DELETE", path, { headers }),
+    postForm,
+    getBlob,
   };
 }
 
@@ -114,10 +165,13 @@ export interface RecallReceipt {
   id: string;
   queried_at: string;
   hit_count: number;
+  kb_hit_count?: number;
   degraded: boolean;
   source: string;
   warnings?: string[];
   agent?: string;
+  agent_path?: string;
+  connection_id?: string | null;
   query_preview?: string;
 }
 
@@ -233,4 +287,6 @@ export interface APIKeyInfo {
   id: string;
   name: string;
   created_at: string;
+  connection_id?: string;
+  connection_label?: string;
 }

@@ -9,6 +9,15 @@ export interface AppCtx {
   refreshProjects: () => Promise<void>;
   notify: (msg: string, kind?: "ok" | "error") => void;
   logout: () => void;
+  navigateTab: (
+    tab: string,
+    opts?: {
+      historyAgent?: string;
+      historyConnectionId?: string;
+      receiptConnectionId?: string;
+      agentsConnectionId?: string;
+    },
+  ) => void;
 }
 
 export const Ctx = createContext<AppCtx | null>(null);
@@ -29,16 +38,21 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await run());
+      const next = await run();
+      setData(next);
       setError(null);
+      return next;
     } catch (e) {
       setError((e as Error).message);
+      throw e;
     } finally {
       setLoading(false);
     }
   }, [run]);
   useEffect(() => {
-    void reload();
+    void reload().catch(() => {
+      /* initial load errors surface via error state */
+    });
   }, [reload]);
   return { data, error, loading, reload };
 }
