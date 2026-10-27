@@ -19,6 +19,29 @@ smctl install deepseek-harness
 
 将 snippet 中的 `plugins:` 并入 harness 项目的 `cordis.yml`，确保 `smhook` / `shared-memory-mcp` 在 PATH（或改绝对路径）。
 
+## 连接心跳（process_online）
+
+会话侧：`shared-memory-mcp` 进程内 ticker（`client=mcp`）。同一契约：
+
+```text
+POST /v1/agents/connections/heartbeat
+Authorization: Bearer $SHARED_MEMORY_API_KEY
+{"client":"adapter","connection_id":"$SHARED_MEMORY_CONNECTION_ID"}
+进程运行期间每 30s 一次
+```
+
+Harness 未运行时可用安装目录里的保活脚本（`client=setup`）。`smctl install deepseek-harness` 会写入 `sm-connection-heartbeat.sh` / `.ps1`：
+
+```bash
+nohup ./sm-connection-heartbeat.sh >/tmp/sm-connection-heartbeat.log 2>&1 &
+```
+
+```powershell
+powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File .\sm-connection-heartbeat.ps1
+```
+
+计划任务 / systemd --user 可选，安装程序不会自动注册。
+
 ## 手动安装
 
 ```bash

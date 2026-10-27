@@ -22,9 +22,34 @@ npm run build
 ```bash
 SHARED_MEMORY_API_KEY=sm_...
 SHARED_MEMORY_API_URL=http://127.0.0.1:18765
+# 可选：Web「智能体」注册连接的 UUID
+# SHARED_MEMORY_CONNECTION_ID=
 ```
 
 开发时可直接在仓库内 `adapters/openclaw` 构建（`@sharedmemory/sdk` 为 `file:../../sdk/typescript`）。
+
+## 连接心跳（process_online）
+
+adapter 进程加载期间 `setInterval` 自动 ping（`client=adapter`）：
+
+```text
+POST /v1/agents/connections/heartbeat
+Authorization: Bearer $SHARED_MEMORY_API_KEY
+{"client":"adapter","connection_id":"$SHARED_MEMORY_CONNECTION_ID"}
+进程运行期间每 30s 一次
+```
+
+OpenClaw 未运行时可用安装目录里的保活脚本（`client=setup`）。`smctl install openclaw` 会写入 `sm-connection-heartbeat.sh` / `.ps1`：
+
+```bash
+nohup ./sm-connection-heartbeat.sh >/tmp/sm-connection-heartbeat.log 2>&1 &
+```
+
+```powershell
+powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File .\sm-connection-heartbeat.ps1
+```
+
+计划任务 / systemd --user 可选，安装程序不会自动注册。
 
 ## 行为（A+B）
 

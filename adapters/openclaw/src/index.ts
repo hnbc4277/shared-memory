@@ -4,6 +4,7 @@
 
 import { Client } from "@sharedmemory/sdk";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import { startConnectionHeartbeat } from "./heartbeat.js";
 
 const AGENT = "xiaolongxia";
 
@@ -101,6 +102,10 @@ export default definePluginEntry({
   description: "Ingest/recall via Shared Memory for OpenClaw (xiaolongxia)",
   register(api) {
     const client = makeClient();
+    startConnectionHeartbeat({
+      baseUrl: client.baseUrl,
+      apiKey: client.apiKey,
+    });
     /** childSessionKey → agent_path suffix id */
     const childMap = new Map<string, string>();
 

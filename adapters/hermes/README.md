@@ -26,7 +26,32 @@ memory:
 ```bash
 SHARED_MEMORY_API_KEY=sm_...
 SHARED_MEMORY_API_URL=http://127.0.0.1:18765
+# 可选：Web「智能体」注册连接的 UUID，用于多机区分
+# SHARED_MEMORY_CONNECTION_ID=
 ```
+
+## 连接心跳（process_online）
+
+插件进程加载期间自动 ping（`client=adapter`）：
+
+```text
+POST /v1/agents/connections/heartbeat
+Authorization: Bearer $SHARED_MEMORY_API_KEY
+{"client":"adapter","connection_id":"$SHARED_MEMORY_CONNECTION_ID"}
+进程运行期间每 30s 一次
+```
+
+Hermes 未运行时可用安装目录里的保活脚本（`client=setup`）。`smctl install hermes` 会写入 `sm-connection-heartbeat.sh` / `.ps1`：
+
+```bash
+nohup ./sm-connection-heartbeat.sh >/tmp/sm-connection-heartbeat.log 2>&1 &
+```
+
+```powershell
+powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File .\sm-connection-heartbeat.ps1
+```
+
+计划任务 / systemd --user 可选，安装程序不会自动注册。
 
 ## 手动安装
 
@@ -50,4 +75,5 @@ adapters/hermes/
   plugin.yaml
   __init__.py
   README.md
+  test_heartbeat.py
 ```

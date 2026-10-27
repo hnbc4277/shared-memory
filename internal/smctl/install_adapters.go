@@ -28,6 +28,9 @@ func InstallHermes() (string, error) {
 	if err := copyTree(src, dst); err != nil {
 		return "", err
 	}
+	if err := writeKeepaliveScripts(dst); err != nil {
+		return "", err
+	}
 	note := filepath.Join(dst, "INSTALL.txt")
 	body := hermesInstallNote(credEnvBlock())
 	if err := os.WriteFile(note, []byte(body), 0o644); err != nil {
@@ -51,6 +54,9 @@ func InstallOpenClaw() (string, error) {
 	}
 	dst := filepath.Join(home, ".shared-memory", "openclaw")
 	if err := copyTree(src, dst); err != nil {
+		return "", err
+	}
+	if err := writeKeepaliveScripts(dst); err != nil {
 		return "", err
 	}
 	note := filepath.Join(dst, "INSTALL.txt")
@@ -109,6 +115,7 @@ plugins:
         SHARED_MEMORY_API_KEY: !!js process.env.SHARED_MEMORY_API_KEY
         SHARED_MEMORY_API_URL: !!js 'process.env.SHARED_MEMORY_API_URL || "http://127.0.0.1:18765"'
         SHARED_MEMORY_AGENT: deepseek-harness
+        SHARED_MEMORY_CONNECTION_ID: !!js 'process.env.SHARED_MEMORY_CONNECTION_ID || ""'
 
   - id: hooks-shared-memory
     name: "@deepseek-ai/dsh-hooks-codex"
@@ -116,6 +123,9 @@ plugins:
       configPath: %q
 `, mcp, filepath.ToSlash(filepath.Join(dst, "hooks.json")))
 	if err := os.WriteFile(filepath.Join(dst, "cordis.snippet.yml"), []byte(cordis), 0o644); err != nil {
+		return "", err
+	}
+	if err := writeKeepaliveScripts(dst); err != nil {
 		return "", err
 	}
 	note := deepSeekInstallNote(dst, credEnvBlock())
@@ -126,8 +136,21 @@ plugins:
 }
 
 func deepSeekHookCommand(smhook string) string {
+	conn := ""
+	if c, err := cred.Resolve(); err == nil {
+		conn = strings.TrimSpace(c.ConnectionID)
+	}
 	if runtime.GOOS == "windows" {
+		if conn != "" {
+			return fmt.Sprintf(
+				`cmd /c "set SHARED_MEMORY_HOOK_SURFACE=codex&& set SHARED_MEMORY_AGENT=deepseek-harness&& set SHARED_MEMORY_CONNECTION_ID=%s&& %s"`,
+				conn, smhook)
+		}
 		return fmt.Sprintf(`cmd /c "set SHARED_MEMORY_HOOK_SURFACE=codex&& set SHARED_MEMORY_AGENT=deepseek-harness&& %s"`, smhook)
+	}
+	if conn != "" {
+		return fmt.Sprintf("env SHARED_MEMORY_HOOK_SURFACE=codex SHARED_MEMORY_AGENT=deepseek-harness SHARED_MEMORY_CONNECTION_ID=%s %s",
+			shellQuote(conn), shellQuote(smhook))
 	}
 	return fmt.Sprintf("env SHARED_MEMORY_HOOK_SURFACE=codex SHARED_MEMORY_AGENT=deepseek-harness %s", shellQuote(smhook))
 }
@@ -216,7 +239,11 @@ func credEnvBlock() string {
 			apiKey = c.APIKey
 		}
 	}
-	return fmt.Sprintf("SHARED_MEMORY_API_URL=%s\nSHARED_MEMORY_API_KEY=%s\n", apiURL, apiKey)
+	block := fmt.Sprintf("SHARED_MEMORY_API_URL=%s\nSHARED_MEMORY_API_KEY=%s\n", apiURL, apiKey)
+	if err == nil && strings.TrimSpace(c.ConnectionID) != "" {
+		block += fmt.Sprintf("SHARED_MEMORY_CONNECTION_ID=%s\n", c.ConnectionID)
+	}
+	return block
 }
 
 func hermesInstallNote(env string) string {
@@ -236,7 +263,8 @@ memory:
 `+env+`
 4. Injection: Hermes prefetch → recall (automatic). Failures: check control console Recall Receipts.
 5. Provenance: sync_turn fills skills/plugins/tools/model when Hermes passes them in kwargs.
-`) + "\n"
+6. Connection heartbeat (process_online): the plugin pings while loaded.
+`+keepaliveInstallNote()) + "\n"
 }
 
 func openclawInstallNote(dir, env string) string {
@@ -258,7 +286,8 @@ Kit copied to:
 %s
 4. Injection: before_prompt_build → prependContext (automatic).
 5. agent=xiaolongxia; subagents → agent_path=xiaolongxia/<id>
-`, dir, dir, env)) + "\n"
+6. Connection heartbeat (process_online): the adapter pings while loaded.
+`+keepaliveInstallNote(), dir, dir, env)) + "\n"
 }
 
 func deepSeekInstallNote(dir, env string) string {
@@ -277,5 +306,105 @@ Files written to:
 
 %s
 5. Injection: Codex-style additionalContext (automatic) + MCP memory_recall.
-`, dir, env)) + "\n"
+6. Connection heartbeat (process_online): MCP ticker while shared-memory-mcp runs.
+`+keepaliveInstallNote(), dir, env)) + "\n"
 }
+
+// Keep in sync with adapters/shared/sm-connection-heartbeat.{sh,ps1}.
+func writeKeepaliveScripts(dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dst, "sm-connection-heartbeat.sh"), []byte(keepaliveSh), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dst, "sm-connection-heartbeat.ps1"), []byte(keepalivePS1), 0o644)
+}
+
+func keepaliveInstallNote() string {
+	return strings.TrimSpace(`
+   Optional install-side keepalive (client=setup) when the product is not running.
+   Scripts in this directory read SHARED_MEMORY_API_URL / SHARED_MEMORY_API_KEY / SHARED_MEMORY_CONNECTION_ID.
+
+   Unix:
+     chmod +x sm-connection-heartbeat.sh
+     nohup ./sm-connection-heartbeat.sh >/tmp/sm-connection-heartbeat.log 2>&1 &
+
+   Windows:
+     powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File .\sm-connection-heartbeat.ps1
+
+   Task Scheduler / systemd --user is optional and not registered automatically.
+`) + "\n"
+}
+
+const keepaliveSh = `#!/usr/bin/env sh
+# Shared Memory connection keepalive (install-side).
+# Reads SHARED_MEMORY_API_URL / SHARED_MEMORY_API_KEY / SHARED_MEMORY_CONNECTION_ID.
+# Optional SHARED_MEMORY_HEARTBEAT_INTERVAL (seconds, default 30).
+set -eu
+API_URL="${SHARED_MEMORY_API_URL:-http://127.0.0.1:18765}"
+API_KEY="${SHARED_MEMORY_API_KEY:-}"
+CONN_ID="${SHARED_MEMORY_CONNECTION_ID:-}"
+INTERVAL="${SHARED_MEMORY_HEARTBEAT_INTERVAL:-30}"
+
+if [ -z "$API_KEY" ]; then
+  echo "sm-connection-heartbeat: SHARED_MEMORY_API_KEY is required" >&2
+  exit 1
+fi
+
+API_URL="${API_URL%/}"
+
+post() {
+  if [ -n "$CONN_ID" ]; then
+    body="{\"client\":\"setup\",\"connection_id\":\"${CONN_ID}\"}"
+  else
+    body='{"client":"setup"}'
+  fi
+  curl -sS -o /dev/null \
+    -X POST "${API_URL}/v1/agents/connections/heartbeat" \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "$body" || echo "sm-connection-heartbeat: request failed" >&2
+}
+
+while true; do
+  post
+  sleep "$INTERVAL"
+done
+`
+
+const keepalivePS1 = `#Requires -Version 5.1
+# Shared Memory connection keepalive (install-side).
+# Reads SHARED_MEMORY_API_URL / SHARED_MEMORY_API_KEY / SHARED_MEMORY_CONNECTION_ID.
+# Optional SHARED_MEMORY_HEARTBEAT_INTERVAL (seconds, default 30).
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Continue'
+$ApiUrl = $env:SHARED_MEMORY_API_URL
+if ([string]::IsNullOrWhiteSpace($ApiUrl)) { $ApiUrl = 'http://127.0.0.1:18765' }
+$ApiKey = $env:SHARED_MEMORY_API_KEY
+$ConnectionId = $env:SHARED_MEMORY_CONNECTION_ID
+$Interval = 30
+if ($env:SHARED_MEMORY_HEARTBEAT_INTERVAL) {
+  $parsed = 0
+  if ([int]::TryParse($env:SHARED_MEMORY_HEARTBEAT_INTERVAL, [ref]$parsed) -and $parsed -gt 0) {
+    $Interval = $parsed
+  }
+}
+if ([string]::IsNullOrWhiteSpace($ApiKey)) {
+  Write-Error 'sm-connection-heartbeat: SHARED_MEMORY_API_KEY is required'
+  exit 1
+}
+$ApiUrl = $ApiUrl.TrimEnd('/')
+$body = @{ client = 'setup' }
+if (-not [string]::IsNullOrWhiteSpace($ConnectionId)) {
+  $body.connection_id = $ConnectionId
+}
+while ($true) {
+  try {
+    Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/agents/connections/heartbeat" -Headers @{ Authorization = "Bearer $ApiKey" } -ContentType 'application/json' -Body ($body | ConvertTo-Json)
+  } catch {
+    Write-Warning $_.Exception.Message
+  }
+  Start-Sleep -Seconds $Interval
+}
+`

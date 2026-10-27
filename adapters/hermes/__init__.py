@@ -66,6 +66,18 @@ _ensure_sdk()
 from sharedmemory import Client  # noqa: E402
 
 
+def _heartbeat_interval_sec() -> float:
+    raw = os.environ.get("SHARED_MEMORY_HEARTBEAT_INTERVAL", "").strip()
+    if raw:
+        try:
+            v = float(raw)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return 30.0
+
+
 class SharedMemoryProvider:
     """Thin MemoryProvider that only calls the Shared Memory Python SDK."""
 
@@ -75,6 +87,8 @@ class SharedMemoryProvider:
         self._agent_context = "primary"
         self._sync_thread: Optional[threading.Thread] = None
         self._last_prefetch = ""
+        self._hb_stop: Optional[threading.Event] = None
+        self._hb_thread: Optional[threading.Thread] = None
 
     @property
     def name(self) -> str:
@@ -96,6 +110,7 @@ class SharedMemoryProvider:
             base_url=os.environ.get("SHARED_MEMORY_API_URL") or "http://127.0.0.1:18765",
             api_key=os.environ.get("SHARED_MEMORY_API_KEY") or None,
         )
+        self._start_heartbeat()
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
         return [
@@ -241,9 +256,48 @@ class SharedMemoryProvider:
         return
 
     def shutdown(self) -> None:
+        self._stop_heartbeat()
         if self._sync_thread and self._sync_thread.is_alive():
             self._sync_thread.join(timeout=5.0)
         self._client = None
+
+    def _start_heartbeat(self) -> None:
+        self._stop_heartbeat()
+        if not self._client or not self._client.api_key or not self._client.base_url:
+            return
+        stop = threading.Event()
+        interval = _heartbeat_interval_sec()
+
+        def _loop() -> None:
+            while not stop.is_set():
+                self._post_heartbeat()
+                if stop.wait(interval):
+                    break
+
+        self._hb_stop = stop
+        self._hb_thread = threading.Thread(target=_loop, name="shared_memory-heartbeat", daemon=True)
+        self._hb_thread.start()
+
+    def _stop_heartbeat(self) -> None:
+        if self._hb_stop is not None:
+            self._hb_stop.set()
+        if self._hb_thread is not None and self._hb_thread.is_alive():
+            self._hb_thread.join(timeout=1.5)
+        self._hb_stop = None
+        self._hb_thread = None
+
+    def _post_heartbeat(self) -> None:
+        client = self._client
+        if not client or not client.api_key or not client.base_url:
+            return
+        body: Dict[str, Any] = {"client": "adapter"}
+        cid = os.environ.get("SHARED_MEMORY_CONNECTION_ID", "").strip()
+        if cid:
+            body["connection_id"] = cid
+        try:
+            client._request("POST", "/v1/agents/connections/heartbeat", body)
+        except Exception as e:
+            logger.debug("shared_memory heartbeat failed: %s", e)
 
 
 def register(ctx: Any) -> None:
