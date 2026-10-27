@@ -135,6 +135,39 @@ func (s *Store) unproject(ctx context.Context, accountID, id uuid.UUID) {
 	}
 }
 
+// ReindexBySourceConnection re-projects memories attributed to a connection (e.g. after claim-history).
+func (s *Store) ReindexBySourceConnection(ctx context.Context, accountID, connectionID uuid.UUID) (int, error) {
+	if s.index == nil {
+		return 0, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id FROM memories
+		WHERE account_id = $1 AND source_connection_id = $2 AND NOT invalidated`, accountID, connectionID)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return n, err
+		}
+		m, err := s.Get(ctx, accountID, id)
+		if err != nil {
+			return n, fmt.Errorf("memory %s: %w", id, err)
+		}
+		if err := s.index.IndexDoc(ctx, index.Doc{
+			ID: m.ID, DocType: index.DocMemory, AccountID: accountID, ProjectID: m.ProjectID, Scope: m.Scope,
+			Kind: m.Kind, Body: m.Body, SourceSessionID: m.SourceSessionID, SourceAgentPath: m.SourceAgentPath,
+			CreatedAt: m.CreatedAt,
+		}); err != nil {
+			return n, fmt.Errorf("reindex memory %s: %w", m.ID, err)
+		}
+		n++
+	}
+	return n, rows.Err()
+}
+
 func normalizeScope(m *Memory) {
 	if m.ProjectID == nil {
 		m.Scope = semantic.ScopeGlobal

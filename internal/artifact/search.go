@@ -2,9 +2,12 @@ package artifact
 
 import (
 	"context"
+	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"sharedmemory/internal/index"
 	"sharedmemory/internal/semantic"
@@ -24,6 +27,43 @@ func SearchDoc(accountID uuid.UUID, d Detail) index.Doc {
 	return index.Doc{ID: a.ID, DocType: index.DocArtifact, AccountID: accountID, ProjectID: a.ProjectID,
 		Scope: scope, Kind: a.Type, Body: vault.Redact(a.Title + "\n" + a.Summary + "\n" + semantic.Truncate(d.Body, indexedRunes)),
 		SourceSessionID: a.SourceSessionID, SourceAgentPath: a.SourceAgentPath, CreatedAt: a.CreatedAt}
+}
+
+// ReindexBySessionConnection re-projects artifacts tied to sessions on a connection (after claim-history).
+func ReindexBySessionConnection(ctx context.Context, pool *pgxpool.Pool, idx *index.Service, store *Store, accountID, connectionID uuid.UUID) (int, error) {
+	if idx == nil || store == nil {
+		return 0, nil
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT a.id FROM artifacts a
+		INNER JOIN sessions s ON s.id = a.source_session_id AND s.account_id = a.account_id
+		WHERE a.account_id = $1 AND s.connection_id = $2`, accountID, connectionID)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return n, err
+		}
+		d, err := store.Get(ctx, accountID, id)
+		if err != nil {
+			return n, fmt.Errorf("artifact %s: %w", id, err)
+		}
+		if err := idx.IndexDoc(ctx, SearchDoc(accountID, d)); err != nil {
+			return n, fmt.Errorf("index artifact %s: %w", id, err)
+		}
+		n++
+	}
+	if err := rows.Err(); err != nil {
+		return n, err
+	}
+	if n > 0 {
+		log.Printf("reindexed %d artifacts for connection %s", n, connectionID)
+	}
+	return n, nil
 }
 
 type Ref struct {

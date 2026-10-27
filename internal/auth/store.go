@@ -59,50 +59,58 @@ func (s *Store) CreateAccount(ctx context.Context, email, password string) (uuid
 }
 
 func (s *Store) CreateAPIKey(ctx context.Context, accountID uuid.UUID, name string) (string, error) {
-	return s.CreateAPIKeyForDevice(ctx, accountID, name, nil)
+	plain, _, err := s.CreateAPIKeyRecord(ctx, accountID, name, nil)
+	return plain, err
 }
 
 func (s *Store) CreateAPIKeyForDevice(ctx context.Context, accountID uuid.UUID, name string, deviceID *uuid.UUID) (string, error) {
+	plain, _, err := s.CreateAPIKeyRecord(ctx, accountID, name, deviceID)
+	return plain, err
+}
+
+// CreateAPIKeyRecord inserts a key and returns plaintext and the new row id.
+func (s *Store) CreateAPIKeyRecord(ctx context.Context, accountID uuid.UUID, name string, deviceID *uuid.UUID) (string, uuid.UUID, error) {
 	plaintext, err := NewAPIKeyPlaintext()
 	if err != nil {
-		return "", err
+		return "", uuid.Nil, err
 	}
+	id := uuid.New()
 	keyHash := HashAPIKey(plaintext)
 	_, err = s.pool.Exec(ctx,
 		`INSERT INTO api_keys (id, account_id, key_hash, name, device_id) VALUES ($1, $2, $3, $4, $5)`,
-		uuid.New(), accountID, keyHash, name, deviceID,
+		id, accountID, keyHash, name, deviceID,
 	)
 	if err != nil {
-		return "", fmt.Errorf("insert api key: %w", err)
+		return "", uuid.Nil, fmt.Errorf("insert api key: %w", err)
 	}
-	return plaintext, nil
+	return plaintext, id, nil
 }
 
 func (s *Store) AuthenticateAPIKey(ctx context.Context, plaintextKey string) (uuid.UUID, error) {
-	accountID, _, err := s.AuthenticateAPIKeyFull(ctx, plaintextKey)
+	accountID, _, _, err := s.AuthenticateAPIKeyFull(ctx, plaintextKey)
 	return accountID, err
 }
 
-// AuthenticateAPIKeyFull returns the account and optional device bound to the key.
-func (s *Store) AuthenticateAPIKeyFull(ctx context.Context, plaintextKey string) (uuid.UUID, *uuid.UUID, error) {
+// AuthenticateAPIKeyFull returns the account, api_keys.id, and optional device bound to the key.
+func (s *Store) AuthenticateAPIKeyFull(ctx context.Context, plaintextKey string) (uuid.UUID, *uuid.UUID, *uuid.UUID, error) {
 	plaintextKey = strings.TrimSpace(plaintextKey)
 	if plaintextKey == "" {
-		return uuid.Nil, nil, ErrUnauthorized
+		return uuid.Nil, nil, nil, ErrUnauthorized
 	}
 	keyHash := HashAPIKey(plaintextKey)
-	var accountID uuid.UUID
+	var accountID, keyID uuid.UUID
 	var deviceID *uuid.UUID
 	err := s.pool.QueryRow(ctx,
-		`SELECT account_id, device_id FROM api_keys WHERE key_hash = $1`,
+		`SELECT id, account_id, device_id FROM api_keys WHERE key_hash = $1`,
 		keyHash,
-	).Scan(&accountID, &deviceID)
+	).Scan(&keyID, &accountID, &deviceID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, nil, ErrUnauthorized
+		return uuid.Nil, nil, nil, ErrUnauthorized
 	}
 	if err != nil {
-		return uuid.Nil, nil, fmt.Errorf("lookup api key: %w", err)
+		return uuid.Nil, nil, nil, fmt.Errorf("lookup api key: %w", err)
 	}
-	return accountID, deviceID, nil
+	return accountID, &keyID, deviceID, nil
 }
 
 // VerifyPassword re-authenticates a user, e.g. to unlock vault secrets.

@@ -16,6 +16,7 @@ type ctxKey int
 const (
 	accountIDKey ctxKey = 1
 	deviceIDKey  ctxKey = 2
+	apiKeyIDKey  ctxKey = 3
 )
 
 func AccountIDFromContext(ctx context.Context) (uuid.UUID, bool) {
@@ -28,12 +29,21 @@ func DeviceIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 	return id, ok
 }
 
+func APIKeyIDFromContext(ctx context.Context) (uuid.UUID, bool) {
+	id, ok := ctx.Value(apiKeyIDKey).(uuid.UUID)
+	return id, ok
+}
+
 func withAccountID(ctx context.Context, id uuid.UUID) context.Context {
 	return context.WithValue(ctx, accountIDKey, id)
 }
 
 func withDeviceID(ctx context.Context, id uuid.UUID) context.Context {
 	return context.WithValue(ctx, deviceIDKey, id)
+}
+
+func withAPIKeyID(ctx context.Context, id uuid.UUID) context.Context {
+	return context.WithValue(ctx, apiKeyIDKey, id)
 }
 
 func BearerAuth(store *auth.Store) func(http.Handler) http.Handler {
@@ -55,12 +65,15 @@ func BearerAuth(store *auth.Store) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r.WithContext(withAccountID(ctx, accountID)))
 				return
 			}
-			accountID, deviceID, err := store.AuthenticateAPIKeyFull(ctx, token)
+			accountID, apiKeyID, deviceID, err := store.AuthenticateAPIKeyFull(ctx, token)
 			if err != nil {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 			authCtx := withAccountID(ctx, accountID)
+			if apiKeyID != nil {
+				authCtx = withAPIKeyID(authCtx, *apiKeyID)
+			}
 			if deviceID != nil {
 				authCtx = withDeviceID(authCtx, *deviceID)
 			}
