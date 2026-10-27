@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"sharedmemory/internal/mcp"
 )
@@ -34,7 +36,12 @@ func run(t *testing.T, lines ...string) ([]map[string]any, []captured) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer api.Close()
-	s := &mcp.Server{Client: &mcp.Client{BaseURL: api.URL, APIKey: "sm_test"}, DefaultAgent: "cursor", Version: "test"}
+	s := &mcp.Server{
+		Client:         &mcp.Client{BaseURL: api.URL, APIKey: "sm_test"},
+		DefaultAgent:   "cursor",
+		HeartbeatEvery: -1,
+		Version:        "test",
+	}
 	var out bytes.Buffer
 	if err := s.Serve(context.Background(), strings.NewReader(strings.Join(lines, "\n")), &out); err != nil {
 		t.Fatal(err)
@@ -71,7 +78,7 @@ func TestServe_HandshakeAndToolList(t *testing.T) {
 		names[tool.(map[string]any)["name"].(string)] = true
 	}
 	for _, want := range []string{"memory_ingest", "memory_recall", "memory_recall_status", "memory_list_sessions", "memory_get_session",
-		"memory_list_candidates", "memory_resolve_candidate", "kb_add", "kb_list", "kb_get", "kb_delete"} {
+		"memory_list_candidates", "memory_resolve_candidate", "kb_add", "kb_list", "kb_get", "kb_delete", "agents_list"} {
 		if !names[want] {
 			t.Errorf("missing tool %s", want)
 		}
@@ -115,4 +122,63 @@ func TestServe_ToolsProxyToAPI(t *testing.T) {
 	if calls[5].method != "POST" || calls[5].path != "/v1/kb/documents" || calls[5].body["text"] != "# KB\nline" {
 		t.Fatalf("kb_add call = %+v", calls[5])
 	}
+}
+
+func TestServe_ConnectionHeartbeatTicker(t *testing.T) {
+	var mu sync.Mutex
+	var heartbeatPaths []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/agents/connections/heartbeat" {
+			mu.Lock()
+			heartbeatPaths = append(heartbeatPaths, r.URL.Path)
+			mu.Unlock()
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["client"] != "mcp" {
+				t.Errorf("heartbeat client = %v", body["client"])
+			}
+			if body["connection_id"] != "conn-test-uuid" {
+				t.Errorf("heartbeat connection_id = %v", body["connection_id"])
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer api.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s := &mcp.Server{
+		Client:              &mcp.Client{BaseURL: api.URL, APIKey: "sm_test"},
+		DefaultConnectionID: "conn-test-uuid",
+		HeartbeatEvery:      20 * time.Millisecond,
+		Version:             "test",
+	}
+	pr, pw := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = s.Serve(ctx, pr, io.Discard)
+	}()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for {
+		mu.Lock()
+		n := len(heartbeatPaths)
+		mu.Unlock()
+		if n >= 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected at least one heartbeat POST, got %d", n)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancel()
+	_ = pw.Close()
+	<-done
 }

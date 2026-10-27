@@ -12,8 +12,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"sharedmemory/sdk/go/sm"
 )
@@ -27,7 +29,11 @@ type Server struct {
 	Client *sm.Client
 	// DefaultAgent fills `agent` for memory_ingest when the caller omits it.
 	DefaultAgent string
-	Version      string
+	// DefaultConnectionID is sent as connection_id on ingest/recall when omitted (env SHARED_MEMORY_CONNECTION_ID).
+	DefaultConnectionID string
+	// HeartbeatEvery controls connection presence POST interval; zero means 30s (tests may set ~20ms).
+	HeartbeatEvery time.Duration
+	Version        string
 }
 
 type rpcRequest struct {
@@ -51,7 +57,40 @@ type rpcResponse struct {
 
 // Serve reads requests until in is closed. Requests are handled sequentially,
 // which keeps responses ordered and is plenty for one interactive agent.
+func (s *Server) heartbeatInterval() time.Duration {
+	if s.HeartbeatEvery > 0 {
+		return s.HeartbeatEvery
+	}
+	return 30 * time.Second
+}
+
+func (s *Server) startConnectionHeartbeat(ctx context.Context) {
+	if s.Client == nil || s.HeartbeatEvery < 0 {
+		return
+	}
+	every := s.heartbeatInterval()
+	go func() {
+		ping := func() {
+			if err := PostConnectionHeartbeat(s.Client, ctx, s.DefaultConnectionID); err != nil {
+				log.Printf("connection heartbeat: %v", err)
+			}
+		}
+		ping()
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				ping()
+			}
+		}
+	}()
+}
+
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	s.startConnectionHeartbeat(ctx)
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	var mu sync.Mutex
@@ -113,6 +152,16 @@ func (s *Server) dispatch(ctx context.Context, req rpcRequest) (any, *rpcError) 
 	}
 }
 
+func (s *Server) applyDefaultConnectionID(args map[string]any) {
+	if s.DefaultConnectionID == "" {
+		return
+	}
+	if v, ok := args["connection_id"].(string); ok && strings.TrimSpace(v) != "" {
+		return
+	}
+	args["connection_id"] = s.DefaultConnectionID
+}
+
 func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage) (string, error) {
 	args := map[string]any{}
 	if len(raw) > 0 && string(raw) != "null" {
@@ -133,12 +182,16 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 		if str("agent") == "" && s.DefaultAgent != "" {
 			args["agent"] = s.DefaultAgent
 		}
+		s.applyDefaultConnectionID(args)
 		out, err = s.Client.CallRaw(ctx, http.MethodPost, "/v1/ingest", args)
 	case "memory_recall":
 		if _, ok := args["source"]; !ok {
 			args["source"] = "mcp"
 		}
+		s.applyDefaultConnectionID(args)
 		out, err = s.Client.CallRaw(ctx, http.MethodPost, "/v1/recall", args)
+	case "agents_list":
+		out, err = s.Client.CallRaw(ctx, http.MethodGet, "/v1/agents", nil)
 	case "memory_list_sessions":
 		q := url.Values{}
 		for _, k := range []string{"project_id", "agent", "agent_path", "from", "to"} {
@@ -260,6 +313,7 @@ var toolDefs = []map[string]any{
 				"role":    map[string]any{"type": "string", "enum": []string{"user", "assistant", "system", "tool"}},
 				"content": map[string]any{"type": "string"}, "attachment_ids": stringList,
 				"store_transcript_mark": map[string]any{"type": "boolean"}, "artifact_offer": map[string]any{"type": "boolean"},
+				"connection_id": map[string]any{"type": "string", "description": "Optional registered connection UUID from Web 智能体 tab"},
 			},
 			"required": []string{"skills", "plugins", "tools", "role", "content"},
 		},
@@ -274,9 +328,15 @@ var toolDefs = []map[string]any{
 				"query": map[string]any{"type": "string"}, "project_id": map[string]any{"type": "string"},
 				"top_k": map[string]any{"type": "integer"},
 				"external_session_id": map[string]any{"type": "string"},
+				"connection_id":     map[string]any{"type": "string"},
 			},
 			"required": []string{"query"},
 		},
+	},
+	{
+		"name":        "agents_list",
+		"description": "List agent products and connection instances (online status, last activity). Same as Web 智能体 tab.",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 	},
 	{
 		"name": "memory_recall_status",
