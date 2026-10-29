@@ -23,7 +23,7 @@ import (
 
 func (r *Router) handleListAgents(w http.ResponseWriter, req *http.Request) {
 	if r.Agents == nil {
-		writeError(w, http.StatusServiceUnavailable, "agents unavailable")
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
 		return
 	}
 	list, err := r.Agents.ListGrouped(req.Context(), accountOf(req))
@@ -36,7 +36,7 @@ func (r *Router) handleListAgents(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleCreateAgentConnection(w http.ResponseWriter, req *http.Request) {
 	if r.Agents == nil {
-		writeError(w, http.StatusServiceUnavailable, "agents unavailable")
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
 		return
 	}
 	var body struct {
@@ -76,7 +76,7 @@ func (r *Router) handleCreateAgentConnection(w http.ResponseWriter, req *http.Re
 
 func (r *Router) handlePatchAgentConnection(w http.ResponseWriter, req *http.Request) {
 	if r.Agents == nil {
-		writeError(w, http.StatusServiceUnavailable, "agents unavailable")
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
 		return
 	}
 	id, ok := pathID(w, req)
@@ -103,7 +103,7 @@ func (r *Router) handlePatchAgentConnection(w http.ResponseWriter, req *http.Req
 
 func (r *Router) handleUpgradeAgentConnection(w http.ResponseWriter, req *http.Request) {
 	if r.Agents == nil {
-		writeError(w, http.StatusServiceUnavailable, "agents unavailable")
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
 		return
 	}
 	id, ok := pathID(w, req)
@@ -171,7 +171,7 @@ func (r *Router) attachCursorSetupScript(ctx context.Context, accountID uuid.UUI
 
 func (r *Router) handleDownloadConnectionSetupScript(w http.ResponseWriter, req *http.Request) {
 	if r.Agents == nil {
-		writeError(w, http.StatusServiceUnavailable, "agents unavailable")
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
 		return
 	}
 	id, ok := pathID(w, req)
@@ -292,7 +292,7 @@ func (r *Router) asyncReindexClaimedConnection(accountID, connectionID uuid.UUID
 
 func (r *Router) handleClaimAgentHistory(w http.ResponseWriter, req *http.Request) {
 	if r.Agents == nil {
-		writeError(w, http.StatusServiceUnavailable, "agents unavailable")
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
 		return
 	}
 	id, ok := pathID(w, req)
@@ -332,7 +332,7 @@ func (r *Router) handleClaimAgentHistory(w http.ResponseWriter, req *http.Reques
 
 func (r *Router) handleAgentsStream(w http.ResponseWriter, req *http.Request) {
 	if r.Agents == nil {
-		writeError(w, http.StatusServiceUnavailable, "agents unavailable")
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
 		return
 	}
 	flusher, ok := w.(http.Flusher)
@@ -377,7 +377,7 @@ func (r *Router) handleAgentsStream(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleAgentsHeartbeat(w http.ResponseWriter, req *http.Request) {
 	if r.Agents == nil {
-		writeError(w, http.StatusServiceUnavailable, "agents unavailable")
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
 		return
 	}
 	var body struct {
@@ -424,7 +424,7 @@ func (r *Router) handleAgentsHeartbeat(w http.ResponseWriter, req *http.Request)
 
 func (r *Router) handleDeleteAgentConnection(w http.ResponseWriter, req *http.Request) {
 	if r.Agents == nil {
-		writeError(w, http.StatusServiceUnavailable, "agents unavailable")
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
 		return
 	}
 	id, ok := pathID(w, req)

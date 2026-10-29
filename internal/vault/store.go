@@ -303,6 +303,101 @@ func (s *Store) EnsurePasswordDEK(ctx context.Context, accountID uuid.UUID, pass
 	return dek, nil
 }
 
+func (s *Store) PasswordWrapConfigured(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	var wrapped []byte
+	err := s.pool.QueryRow(ctx, `SELECT vault_wrapped_dek FROM accounts WHERE id = $1`, accountID).Scan(&wrapped)
+	if err != nil {
+		return false, err
+	}
+	return len(wrapped) > 0, nil
+}
+
+// ReencryptSecretsWithDEK re-wraps vault_items and active vault_candidates using the password DEK (transactional).
+func (s *Store) ReencryptSecretsWithDEK(ctx context.Context, accountID uuid.UUID, dek []byte) error {
+	if len(dek) == 0 {
+		return fmt.Errorf("dek is required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	itemRows, err := tx.Query(ctx, `
+		SELECT id, secret_cipher, secret_nonce FROM vault_items WHERE account_id = $1`, accountID)
+	if err != nil {
+		return err
+	}
+	type secretRow struct {
+		id        uuid.UUID
+		ct, nonce []byte
+	}
+	var items []secretRow
+	for itemRows.Next() {
+		var r secretRow
+		if err := itemRows.Scan(&r.id, &r.ct, &r.nonce); err != nil {
+			itemRows.Close()
+			return err
+		}
+		items = append(items, r)
+	}
+	itemRows.Close()
+	if err := itemRows.Err(); err != nil {
+		return err
+	}
+	for _, it := range items {
+		plain, err := s.cipher.DecryptWithDEK(accountID, nil, it.ct, it.nonce)
+		if err != nil {
+			return fmt.Errorf("decrypt item %s: %w", it.id, err)
+		}
+		ct, nonce, err := s.cipher.EncryptWithDEK(accountID, dek, plain)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE vault_items SET secret_cipher = $3, secret_nonce = $4, updated_at = now()
+			WHERE account_id = $1 AND id = $2`, accountID, it.id, ct, nonce); err != nil {
+			return err
+		}
+	}
+
+	candRows, err := tx.Query(ctx, `
+		SELECT id, secret_cipher, secret_nonce FROM vault_candidates
+		WHERE account_id = $1 AND expires_at > now()`, accountID)
+	if err != nil {
+		return err
+	}
+	var cands []secretRow
+	for candRows.Next() {
+		var r secretRow
+		if err := candRows.Scan(&r.id, &r.ct, &r.nonce); err != nil {
+			candRows.Close()
+			return err
+		}
+		cands = append(cands, r)
+	}
+	candRows.Close()
+	if err := candRows.Err(); err != nil {
+		return err
+	}
+	for _, c := range cands {
+		plain, err := s.cipher.DecryptWithDEK(accountID, nil, c.ct, c.nonce)
+		if err != nil {
+			return fmt.Errorf("decrypt candidate %s: %w", c.id, err)
+		}
+		ct, nonce, err := s.cipher.EncryptWithDEK(accountID, dek, plain)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE vault_candidates SET secret_cipher = $3, secret_nonce = $4
+			WHERE account_id = $1 AND id = $2`, accountID, c.id, ct, nonce); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) UnlockDEK(ctx context.Context, accountID uuid.UUID, password string) ([]byte, error) {
 	var salt, wrapped, nonce []byte
 	err := s.pool.QueryRow(ctx, `

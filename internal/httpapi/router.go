@@ -26,6 +26,7 @@ import (
 	"sharedmemory/internal/quarantine"
 	"sharedmemory/internal/ratelimit"
 	"sharedmemory/internal/recall"
+	"sharedmemory/internal/semantic"
 	"sharedmemory/internal/session"
 	"sharedmemory/internal/vault"
 )
@@ -49,10 +50,18 @@ type Deps struct {
 	Entities    *entity.Store
 	KB          *kb.Store
 	Agents      *agents.Store
+	Embedding     EmbeddingSettings
+	EmbedResolver *semantic.Resolver
+	EmbedMaxDim   int
+	Reindexer     AccountReindexer
 	RateLimit   *ratelimit.Limiter
 	CORSOrigins []string
 	// PublicAPIURL is baked into Cursor setup scripts (external host:port).
 	PublicAPIURL string
+	// DownloadsDir serves smhook.exe / shared-memory-mcp.exe at GET /downloads/{name}.
+	DownloadsDir string
+	// WebStaticDir optionally serves web/dist for same-origin UI.
+	WebStaticDir string
 }
 
 type Router struct {
@@ -75,6 +84,7 @@ func NewRouter(d Deps) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("GET /downloads/{name}", r.handlePublicDownload)
 	mux.HandleFunc("POST /v1/auth/register", r.handleRegister)
 	mux.HandleFunc("POST /v1/auth/login", r.handleLogin)
 	mux.HandleFunc("POST /v1/device/code", r.handleDeviceCode)
@@ -155,7 +165,13 @@ func NewRouter(d Deps) http.Handler {
 	handle("DELETE /v1/kb/documents/{id}", r.handleDeleteKBDocument)
 	handle("POST /v1/kb/documents/{id}/reparse", r.handleReparseKBDocument)
 
-	return CORS(d.CORSOrigins)(mux)
+	handle("GET /v1/embedding-settings", r.handleGetEmbeddingSettings)
+	handle("PUT /v1/embedding-settings", r.handlePutEmbeddingSettings)
+	handle("DELETE /v1/embedding-settings", r.handleDeleteEmbeddingSettings)
+	handle("POST /v1/embedding-settings/probe", r.handleProbeEmbeddingSettings)
+	handle("POST /v1/embedding-settings/reindex", r.handleReindexEmbeddingSettings)
+
+	return withWebStatic(d.WebStaticDir, CORS(d.CORSOrigins)(mux))
 }
 
 type errorBody struct {

@@ -1,0 +1,12 @@
+{
+  "name": "shared-memory",
+  "transport": "stdio",
+  "command": "shared-memory-mcp",
+  "args": [],
+  "env": {
+    "SHARED_MEMORY_API_URL": "http://127.0.0.1:18765",
+    "SHARED_MEMORY_API_KEY": "sm_...",
+    "SHARED_MEMORY_AGENT": "doubao",
+    "SHARED_MEMORY_CONNECTION_ID": ""
+  }
+}

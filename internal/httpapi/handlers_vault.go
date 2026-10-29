@@ -150,6 +150,44 @@ func (r *Router) handleRevealVault(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"secret": secret})
 }
 
+func (r *Router) handleVaultWrapStatus(w http.ResponseWriter, req *http.Request) {
+	ok, err := r.Vault.PasswordWrapConfigured(req.Context(), accountOf(req))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"password_wrap_enabled": ok})
+}
+
+func (r *Router) handleVaultWrapSetup(w http.ResponseWriter, req *http.Request) {
+	var body revealReq
+	if !decode(w, req, &body) {
+		return
+	}
+	if err := r.Auth.VerifyPassword(req.Context(), accountOf(req), body.Password); err != nil {
+		writeError(w, http.StatusUnauthorized, "password verification failed")
+		return
+	}
+	accountID := accountOf(req)
+	wasWrapped, err := r.Vault.PasswordWrapConfigured(req.Context(), accountID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	dek, err := r.Vault.EnsurePasswordDEK(req.Context(), accountID, body.Password)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if !wasWrapped {
+		if err := r.Vault.ReencryptSecretsWithDEK(req.Context(), accountID, dek); err != nil {
+			fail(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"password_wrap_enabled": true})
+}
+
 // handleCopiedVault records that a revealed secret was copied to the clipboard.
 func (r *Router) handleCopiedVault(w http.ResponseWriter, req *http.Request) {
 	id, ok := pathID(w, req)

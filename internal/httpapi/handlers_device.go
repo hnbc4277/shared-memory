@@ -101,13 +101,17 @@ func (r *Router) handleRevokeDevice(w http.ResponseWriter, req *http.Request) {
 	if !ok {
 		return
 	}
-	if err := r.Devices.Revoke(req.Context(), accountOf(req), id); err != nil {
+	accountID := accountOf(req)
+	if err := r.Devices.Revoke(req.Context(), accountID, id); err != nil {
 		if errors.Is(err, device.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}
 		fail(w, err)
 		return
+	}
+	if r.Agents != nil {
+		_ = r.Agents.RevokeByDevice(req.Context(), accountID, id)
 	}
 	r.audit(req, "device.revoke", map[string]any{"device_id": id})
 	w.WriteHeader(http.StatusNoContent)

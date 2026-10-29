@@ -14,24 +14,26 @@ import (
 const defaultQueryPreviewRunes = 200
 
 type Receipt struct {
-	ID                uuid.UUID  `json:"id"`
-	ProjectID         *uuid.UUID `json:"project_id,omitempty"`
-	SessionID         *uuid.UUID `json:"session_id,omitempty"`
-	ExternalSessionID string     `json:"external_session_id,omitempty"`
-	Agent             string     `json:"agent,omitempty"`
-	AgentPath         string     `json:"agent_path,omitempty"`
-	QueriedAt         time.Time  `json:"queried_at"`
-	HitCount          int        `json:"hit_count"`
-	KBHitCount        int        `json:"kb_hit_count"`
-	Degraded          bool       `json:"degraded"`
-	Warnings          []string   `json:"warnings"`
-	Source            string     `json:"source"`
-	QueryPreview      string     `json:"query_preview,omitempty"`
+	ID                 uuid.UUID  `json:"id"`
+	ProjectID          *uuid.UUID `json:"project_id,omitempty"`
+	SessionID          *uuid.UUID `json:"session_id,omitempty"`
+	ConnectionID       *uuid.UUID `json:"connection_id,omitempty"`
+	ExternalSessionID  string     `json:"external_session_id,omitempty"`
+	Agent              string     `json:"agent,omitempty"`
+	AgentPath          string     `json:"agent_path,omitempty"`
+	QueriedAt          time.Time  `json:"queried_at"`
+	HitCount           int        `json:"hit_count"`
+	KBHitCount         int        `json:"kb_hit_count"`
+	Degraded           bool       `json:"degraded"`
+	Warnings           []string   `json:"warnings"`
+	Source             string     `json:"source"`
+	QueryPreview       string     `json:"query_preview,omitempty"`
 }
 
 type ReceiptFilter struct {
 	SessionID         *uuid.UUID
 	ExternalSessionID string
+	ConnectionID      *uuid.UUID
 	Limit             int
 }
 
@@ -61,9 +63,16 @@ func buildReceipt(req Request, res Result) Receipt {
 	if source == "" {
 		source = "http"
 	}
+	var connID *uuid.UUID
+	if raw := strings.TrimSpace(req.ConnectionID); raw != "" {
+		if id, err := uuid.Parse(raw); err == nil {
+			connID = &id
+		}
+	}
 	return Receipt{
 		ProjectID:         req.ProjectID,
 		SessionID:         req.SessionID,
+		ConnectionID:      connID,
 		ExternalSessionID: strings.TrimSpace(req.ExternalSessionID),
 		Agent:             strings.TrimSpace(req.Agent),
 		AgentPath:         strings.TrimSpace(req.AgentPath),
@@ -95,11 +104,11 @@ func (s *Service) recordReceipt(ctx context.Context, accountID uuid.UUID, req Re
 	var id uuid.UUID
 	err = s.Pool.QueryRow(ctx, `
 		INSERT INTO recall_receipts (
-			account_id, project_id, session_id, external_session_id,
+			account_id, project_id, session_id, connection_id, external_session_id,
 			agent, agent_path, hit_count, kb_hit_count, degraded, warnings, source, query_preview
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		RETURNING id`,
-		accountID, r.ProjectID, r.SessionID, nullStr(r.ExternalSessionID),
+		accountID, r.ProjectID, r.SessionID, r.ConnectionID, nullStr(r.ExternalSessionID),
 		nullStr(r.Agent), nullStr(r.AgentPath), r.HitCount, r.KBHitCount, r.Degraded, warnJSON, r.Source, nullStr(r.QueryPreview),
 	).Scan(&id)
 	if err != nil {
@@ -116,7 +125,7 @@ func (s *Service) ListReceipts(ctx context.Context, accountID uuid.UUID, filter 
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	q := `SELECT id, project_id, session_id, COALESCE(external_session_id, ''),
+	q := `SELECT id, project_id, session_id, connection_id, COALESCE(external_session_id, ''),
 		COALESCE(agent, ''), COALESCE(agent_path, ''), queried_at, hit_count, kb_hit_count, degraded,
 		COALESCE(warnings, '[]'::jsonb), source, COALESCE(query_preview, '')
 		FROM recall_receipts WHERE account_id = $1`
@@ -125,6 +134,11 @@ func (s *Service) ListReceipts(ctx context.Context, accountID uuid.UUID, filter 
 	if filter.SessionID != nil {
 		q += fmt.Sprintf(` AND session_id = $%d`, n)
 		args = append(args, *filter.SessionID)
+		n++
+	}
+	if filter.ConnectionID != nil {
+		q += fmt.Sprintf(` AND connection_id = $%d`, n)
+		args = append(args, *filter.ConnectionID)
 		n++
 	}
 	if ext := strings.TrimSpace(filter.ExternalSessionID); ext != "" {
@@ -145,7 +159,7 @@ func (s *Service) ListReceipts(ctx context.Context, accountID uuid.UUID, filter 
 	for rows.Next() {
 		var r Receipt
 		var warnJSON []byte
-		if err := rows.Scan(&r.ID, &r.ProjectID, &r.SessionID, &r.ExternalSessionID,
+		if err := rows.Scan(&r.ID, &r.ProjectID, &r.SessionID, &r.ConnectionID, &r.ExternalSessionID,
 			&r.Agent, &r.AgentPath, &r.QueriedAt, &r.HitCount, &r.KBHitCount, &r.Degraded,
 			&warnJSON, &r.Source, &r.QueryPreview); err != nil {
 			return nil, err

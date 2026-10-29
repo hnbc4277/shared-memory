@@ -163,8 +163,8 @@ export default function KeysPage() {
 
       <Section title="接入智能体（通用 MCP）">
         <p className="muted small">
-          一键安装：<code>smctl install cursor|codex|hermes|openclaw|deepseek-harness</code>。
-          Codex / DeepSeek / Hermes / OpenClaw 尽量自动注入；Cursor 用 MCP 召回 + 上方 Receipt 可证明。
+          一键安装：<code>smctl install cursor|codex|hermes|openclaw|deepseek-harness|doubao</code>。
+          Codex / DeepSeek / Hermes / OpenClaw 尽量自动注入；Cursor / 豆包用 MCP 召回（豆包另需导入 Skill）+ 上方 Receipt 可证明。
           通用 MCP 也可手写配置（SHARED_MEMORY_AGENT 填智能体名）。
         </p>
         <pre className="msg-body">{mcpConfig}</pre>

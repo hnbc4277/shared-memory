@@ -82,6 +82,19 @@ func BearerAuth(store *auth.Store) func(http.Handler) http.Handler {
 	}
 }
 
+// AuthEmailRateLimit applies per-email login limits; returns false after writing 429.
+func AuthEmailRateLimit(limiter *ratelimit.Limiter, w http.ResponseWriter, ctx context.Context, email string) bool {
+	if limiter == nil {
+		return true
+	}
+	ok, err := limiter.AllowEmail(ctx, strings.ToLower(strings.TrimSpace(email)), "auth_login_email")
+	if err != nil || ok {
+		return true
+	}
+	writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+	return false
+}
+
 // RateLimit rejects when the account exceeds Limit for the named route.
 func RateLimit(limiter *ratelimit.Limiter, route string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

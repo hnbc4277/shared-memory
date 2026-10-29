@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/google/uuid"
 
 	"sharedmemory/internal/auth"
 	"sharedmemory/internal/httpapi"
@@ -48,6 +49,47 @@ func TestWS_PingWithQueryToken(t *testing.T) {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
+	var ready map[string]any
+	if err := wsjson.Read(ctx, conn, &ready); err != nil {
+		t.Fatal(err)
+	}
+	if ready["type"] != "ready" {
+		t.Fatalf("ready = %v", ready)
+	}
+	if err := wsjson.Write(ctx, conn, map[string]any{"type": "ping"}); err != nil {
+		t.Fatal(err)
+	}
+	var pong map[string]any
+	if err := wsjson.Read(ctx, conn, &pong); err != nil {
+		t.Fatal(err)
+	}
+	if pong["type"] != "pong" {
+		t.Fatalf("pong = %v", pong)
+	}
+}
+
+func TestWS_PingWithWebSessionToken(t *testing.T) {
+	pool := testutil.TestPool(t)
+	authStore := auth.NewStore(pool)
+	email := "ws-wss-" + uuid.NewString() + "@example.com"
+	if _, err := authStore.CreateAccount(context.Background(), email, "password123456"); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := authStore.LoginWithPassword(context.Background(), email, "password123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := httpapi.NewRouter(httpapi.Deps{Auth: authStore})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+srv.URL[4:]+"/v1/ws?access_token="+sess.Token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
 	var ready map[string]any
 	if err := wsjson.Read(ctx, conn, &ready); err != nil {
 		t.Fatal(err)

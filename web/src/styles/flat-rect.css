@@ -1,0 +1,219 @@
+/* Global flat + right-angle overrides (after pearl / bridge / styles.css) */
+
+:root {
+  --r-xs: 0;
+  --r-sm: 0;
+  --r-md: 0;
+  --r-lg: 0;
+  --r-xl: 0;
+  --r-pill: 0;
+  --radius: 0;
+  --frame-r: 0;
+  --login-canvas-r: 0;
+  --shadow: none;
+  --shadow-modal: none;
+}
+
+/* Shell */
+.stage { padding: 0; }
+.app-frame,
+.app-frame.frame-soft,
+.app-frame.frame-tight,
+.app-frame.frame-bold {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+.app-frame {
+  height: 100dvh;
+  min-height: 100dvh;
+  border-width: 0;
+  border-right: 1px solid var(--line-strong);
+}
+
+/* Kill remaining soft radius / glow on chrome & surfaces */
+.login-card,
+.login-canvas,
+.login-plate,
+.login-shell,
+.bento-card,
+.bento-tile,
+.module-tile,
+.agent-card,
+.stat-card,
+.stat-tile,
+.card,
+.sub-panel,
+.pearl-section,
+.panel-table,
+.data-table,
+.filter-panel,
+.m-groove,
+.segmented,
+.seg-thumb,
+.nav-thumb,
+.nav-item,
+.brand-mark,
+.chip,
+.tag,
+.tag.is-blue,
+.tag.is-violet,
+.tag.is-amber,
+.tag.is-muted,
+.tag.is-ok,
+.tag.is-danger,
+.tag-ok,
+.tag-warn,
+.tag-danger,
+.tag-info,
+.pending-pill,
+.dot-online,
+.dot,
+.dot.ok,
+.toast,
+.cmd-panel,
+.cmd-item,
+.code-block,
+.issued,
+.error-line,
+.empty,
+.secret,
+.icon-btn,
+.btn,
+.btn-primary,
+.btn-quiet,
+.btn-secondary,
+button.primary,
+button.small,
+input,
+select,
+textarea,
+.field input,
+.field select,
+.field textarea {
+  border-radius: 0 !important;
+}
+
+/* Do NOT put .m-pill here — seg/nav thumbs use transform for position */
+.lift,
+.lift:hover,
+.m-surface,
+.m-float,
+.card.m-surface,
+.agent-card.lift:hover,
+.module-tile:hover {
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* ---- Selection / active states (CSS-first, no thumb dependency) ---- */
+
+/* Segmented tabs: 分栏 | 列表, login mode, etc. */
+.segmented.m-groove {
+  background: var(--groove-bg);
+  border: 1px solid var(--line-strong);
+}
+.seg-thumb {
+  display: none !important; /* flat: solid button fill instead of sliding pill */
+}
+.segmented button {
+  color: var(--ink-muted);
+  background: transparent;
+}
+.segmented button.is-active,
+.segmented button[aria-selected="true"] {
+  color: var(--ink) !important;
+  background: var(--surface) !important;
+  font-weight: 650;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+/* Sidebar nav items */
+.nav-thumb {
+  display: none !important;
+}
+.nav-item.is-active {
+  color: var(--ink) !important;
+  font-weight: 650;
+  background: var(--blue-soft) !important;
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+.nav-item.is-active .nav-ico {
+  color: var(--blue) !important;
+}
+
+/* Command palette row */
+.cmd-item.is-active {
+  background: var(--blue-soft) !important;
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+
+/* List / session / KB selection */
+.item.selected {
+  border-color: color-mix(in srgb, var(--blue) 45%, var(--line)) !important;
+  background: var(--blue-soft) !important;
+}
+
+/* Toggle: keep knob travel (must not inherit transform:none) */
+.toggle input:checked + .toggle-track {
+  background: var(--ok);
+}
+.toggle input:checked + .toggle-track::after {
+  transform: translateX(17px) !important;
+}
+
+.m-rail,
+.m-pill,
+.m-float,
+.login-card,
+.cmd-panel,
+.topbar.condensed::before,
+.topbar::before {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Status dots stay as small squares (not pills) */
+.dot,
+.health-dot,
+.brand-dot {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Toggle track: flat rectangle */
+.toggle-track {
+  border-radius: 0 !important;
+}
+.toggle-track::after {
+  border-radius: 0 !important;
+}
+
+/* Progress / share bars */
+.share-track,
+.share-track i {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Focus: single border hairline, no soft glow / double ring */
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+  box-shadow: none !important;
+  outline: none !important;
+  border-color: var(--primary);
+}
+.input-shell input,
+.input-shell input:focus {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+.input-shell:focus-within {
+  border-color: var(--primary) !important;
+  box-shadow: none !important;
+}
+
+button:active:not(:disabled) {
+  transform: none;
+}

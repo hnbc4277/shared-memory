@@ -9,6 +9,7 @@ import (
 	"sharedmemory/internal/artifact"
 	"sharedmemory/internal/index"
 	"sharedmemory/internal/memory"
+	"sharedmemory/internal/semantic"
 )
 
 // Reindexer backfills a vector collection from Postgres, the source of truth.
@@ -20,6 +21,8 @@ type Reindexer struct {
 	Memories   *memory.Store
 	Artifacts  *artifact.Store
 	Collection string
+	Resolver   *semantic.Resolver
+	Settings   EmbeddingSettings
 }
 
 func (r *Reindexer) Needed(ctx context.Context) (bool, error) {

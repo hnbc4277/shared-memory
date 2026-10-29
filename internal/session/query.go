@@ -14,8 +14,9 @@ import (
 )
 
 type ListFilter struct {
-	ProjectID *uuid.UUID
-	Agent     string
+	ProjectID    *uuid.UUID
+	ConnectionID *uuid.UUID
+	Agent        string
 	// AgentPath matches the path itself and all of its sub-agents.
 	AgentPath string
 	From      *time.Time
@@ -53,14 +54,15 @@ func (s *Service) List(ctx context.Context, accountID uuid.UUID, f ListFilter) (
 	rows, err := s.Pool.Query(ctx, `SELECT `+sessionColumns+` FROM sessions s
 		WHERE s.account_id = $1
 		  AND ($2::uuid IS NULL OR s.project_id = $2)
-		  AND ($3 = '' OR s.agent = $3)
-		  AND ($4 = '' OR EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id
-		                          AND (m.agent_path = $4 OR m.agent_path LIKE $5)))
-		  AND ($6::timestamptz IS NULL OR COALESCE(s.ended_at, s.started_at) >= $6)
-		  AND ($7::timestamptz IS NULL OR s.started_at <= $7)
+		  AND ($3::uuid IS NULL OR s.connection_id = $3)
+		  AND ($4 = '' OR s.agent = $4)
+		  AND ($5 = '' OR EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id
+		                          AND (m.agent_path = $5 OR m.agent_path LIKE $6)))
+		  AND ($7::timestamptz IS NULL OR COALESCE(s.ended_at, s.started_at) >= $7)
+		  AND ($8::timestamptz IS NULL OR s.started_at <= $8)
 		ORDER BY COALESCE(s.ended_at, s.started_at) DESC
-		LIMIT $8 OFFSET $9`,
-		accountID, f.ProjectID, f.Agent, f.AgentPath, likePrefix(f.AgentPath), f.From, f.To, f.Limit, f.Offset)
+		LIMIT $9 OFFSET $10`,
+		accountID, f.ProjectID, f.ConnectionID, f.Agent, f.AgentPath, likePrefix(f.AgentPath), f.From, f.To, f.Limit, f.Offset)
 	if err != nil {
 		return nil, err
 	}

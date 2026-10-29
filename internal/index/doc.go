@@ -23,9 +23,10 @@ type Doc struct {
 	Scope           string     `json:"scope"`
 	Kind            string     `json:"kind"`
 	Body            string     `json:"body"`
-	SourceSessionID *uuid.UUID `json:"source_session_id,omitempty"`
-	SourceAgentPath string     `json:"source_agent_path"`
-	CreatedAt       time.Time  `json:"created_at"`
+	SourceSessionID    *uuid.UUID `json:"source_session_id,omitempty"`
+	SourceConnectionID *uuid.UUID `json:"source_connection_id,omitempty"`
+	SourceAgentPath    string     `json:"source_agent_path"`
+	CreatedAt          time.Time  `json:"created_at"`
 }
 
 type Hit struct {

@@ -1,4 +1,7 @@
-﻿.env
+﻿# 本地密钥与域名：只保留 .env.example 可提交
+.env
+.env.*
+!.env.example
 bin/
 *.exe
 **/node_modules/
@@ -9,3 +12,14 @@ bin/
 .worktrees/
 .superpowers/
 *.egg-info/
+.gocache/
+.tmp/
+.tmp-*/
+.cursor/
+.finesse/
+.workbench/
+*.log
+web/vite-*.log
+
+# 私有设计/计划文档：公开仓勿提交
+[internal-notes]

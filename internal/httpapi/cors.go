@@ -5,8 +5,8 @@ import (
 	"slices"
 )
 
-// CORS admits only configured origins (the local web console); the API key
-// travels in the Authorization header, so no cookies are involved.
+// CORS admits only configured origins (the local web console). API keys use
+// Authorization; web console login may also use HttpOnly session cookies.
 func CORS(origins []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -15,6 +15,7 @@ func CORS(origins []string) func(http.Handler) http.Handler {
 				h := w.Header()
 				h.Set("Access-Control-Allow-Origin", origin)
 				h.Set("Vary", "Origin")
+				h.Set("Access-Control-Allow-Credentials", "true")
 				h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Confirm")
 				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 				h.Set("Access-Control-Max-Age", "600")

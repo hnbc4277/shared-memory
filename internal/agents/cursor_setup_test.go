@@ -10,7 +10,7 @@ func TestRenderCursorSetupScript(t *testing.T) {
 		"http://127.0.0.1:18080",
 		"sm_test_key",
 		"11111111-2222-3333-4444-555555555555",
-		"http://hnbc4277.top:28080",
+		"http://example.com:28080",
 	)
 	if strings.Contains(out, "__SM_API_KEY__") || strings.Contains(out, "__SM_CONNECTION_ID__") {
 		t.Fatal("placeholders not replaced")
@@ -21,7 +21,7 @@ func TestRenderCursorSetupScript(t *testing.T) {
 	if !strings.Contains(out, "11111111-2222-3333-4444-555555555555") {
 		t.Fatal("missing connection id")
 	}
-	if !strings.Contains(out, "http://hnbc4277.top:28080") {
+	if !strings.Contains(out, "http://example.com:28080") {
 		t.Fatal("missing download base")
 	}
 	// Sentinel checks must not compare eq to the baked secret (ReplaceAll bug).
@@ -57,15 +57,15 @@ func TestPS1FileBytesSingleBOM(t *testing.T) {
 }
 
 func TestParseCursorSetupScriptValues(t *testing.T) {
-	oldStyle := `[string]$ApiUrl = "http://hnbc4277.top:28080",
+	oldStyle := `[string]$ApiUrl = "http://example.com:28080",
   [string]$ApiKey = "sm_abc123",
   [string]$ConnectionId = "010779c9-281a-4db5-9e37-1a134a44b182",
-  [string]$DownloadBase = "http://hnbc4277.top:28080",`
+  [string]$DownloadBase = "http://example.com:28080",`
 	apiURL, apiKey, connID, dl, ok := ParseCursorSetupScriptValues(oldStyle)
 	if !ok || apiKey != "sm_abc123" || connID != "010779c9-281a-4db5-9e37-1a134a44b182" {
 		t.Fatalf("old style parse failed: ok=%v key=%q id=%q", ok, apiKey, connID)
 	}
-	if apiURL != "http://hnbc4277.top:28080" || dl != "http://hnbc4277.top:28080" {
+	if apiURL != "http://example.com:28080" || dl != "http://example.com:28080" {
 		t.Fatalf("urls: %q %q", apiURL, dl)
 	}
 	rendered := RenderCursorSetupScript(apiURL, apiKey, connID, dl)

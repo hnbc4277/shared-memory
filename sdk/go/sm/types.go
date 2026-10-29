@@ -17,6 +17,7 @@ type IngestRequest struct {
 	Role              string   `json:"role"`
 	Content           string   `json:"content"`
 	AttachmentIDs     []string `json:"attachment_ids,omitempty"`
+	ConnectionID      string   `json:"connection_id,omitempty"`
 }
 
 // IngestResult is the ingest response.
@@ -30,9 +31,10 @@ type IngestResult struct {
 
 // RecallRequest is POST /v1/recall body.
 type RecallRequest struct {
-	Query     string `json:"query"`
-	ProjectID string `json:"project_id,omitempty"`
-	TopK      int    `json:"top_k,omitempty"`
+	Query          string `json:"query"`
+	ProjectID      string `json:"project_id,omitempty"`
+	TopK           int    `json:"top_k,omitempty"`
+	ConnectionID   string `json:"connection_id,omitempty"`
 }
 
 // RecallResult is the recall response.

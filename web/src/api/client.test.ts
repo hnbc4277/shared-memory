@@ -23,7 +23,7 @@ describe("createClient", () => {
     const err = (await c.get("/v1/me").catch((e: unknown) => e)) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(401);
-    expect(err.message).toBe("unauthorized");
+    expect(err.message).toBe("未授权，请重新登录");
     expect((seen?.headers as Record<string, string>)["Authorization"]).toBe("Bearer sm_key");
   });
 });

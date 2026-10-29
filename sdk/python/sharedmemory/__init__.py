@@ -33,6 +33,12 @@ class Client:
         self.api_key = api_key if api_key is not None else os.environ.get("SHARED_MEMORY_API_KEY", "")
         self.timeout = timeout
 
+    def _merge_connection_id(self, body: dict[str, Any]) -> dict[str, Any]:
+        cid = os.environ.get("SHARED_MEMORY_CONNECTION_ID", "").strip()
+        if cid and not body.get("connection_id"):
+            body = {**body, "connection_id": cid}
+        return body
+
     def _request(
         self,
         method: str,
@@ -64,20 +70,23 @@ class Client:
 
     def ingest(self, **fields: Any) -> dict[str, Any]:
         """POST /v1/ingest. Pass session_id, skills, plugins, tools, role, content, etc."""
-        return self._request("POST", "/v1/ingest", fields)
+        return self._request("POST", "/v1/ingest", self._merge_connection_id(dict(fields)))
 
     def recall(
         self,
         query: str,
         project_id: Optional[str] = None,
         top_k: Optional[int] = None,
+        connection_id: Optional[str] = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"query": query}
         if project_id:
             body["project_id"] = project_id
         if top_k is not None:
             body["top_k"] = top_k
-        return self._request("POST", "/v1/recall", body)
+        if connection_id:
+            body["connection_id"] = connection_id
+        return self._request("POST", "/v1/recall", self._merge_connection_id(body))
 
     def list_sessions(self, **filters: Any) -> list[dict[str, Any]]:
         q = urllib.parse.urlencode({k: v for k, v in filters.items() if v is not None and v != ""})

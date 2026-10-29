@@ -3,8 +3,9 @@ import { subscribeAgentsStream } from "../agentsStream";
 import { useApp, useLoad, fmtTime } from "../ctx";
 import { DOC_LINKS } from "../docLinks";
 import type { RecallReceipt } from "../api/client";
-import { ConfirmModal, DataTable, Empty, ErrorLine, Modal, PageStack, Section, StatRow, StatTile } from "../ui";
+import { ConfirmModal, Empty, ErrorLine, Modal, PageStack, Section, StatRow, StatTile } from "../ui";
 import { CursorSetupGuide } from "./CursorSetupGuide";
+import { DoubaoSetupGuide } from "./DoubaoSetupGuide";
 
 interface Connection {
   id: string;
@@ -45,6 +46,14 @@ function formatActivityAge(ingest?: string | null, recall?: string | null): stri
   return `${Math.floor(hours / 24)} 天前`;
 }
 
+/** Tag tone for activity age label from formatActivityAge. */
+function activityTagClass(ageLabel: string): string {
+  if (ageLabel === "尚无活动") return "tag is-muted";
+  if (ageLabel === "刚刚" || ageLabel.endsWith("分钟前")) return "tag is-ok";
+  if (ageLabel.endsWith("小时前")) return "tag is-amber";
+  return "tag is-muted";
+}
+
 interface AgentGroup {
   agent: string;
   display_name: string;
@@ -67,6 +76,7 @@ const AGENT_OPTIONS = [
   { id: "hermes", label: "爱马仕" },
   { id: "deepseek-harness", label: "DeepSeek Harness" },
   { id: "openclaw", label: "OpenClaw" },
+  { id: "doubao", label: "豆包" },
 ];
 
 export default function AgentsPage() {
@@ -124,7 +134,7 @@ export default function AgentsPage() {
   const [receiptConn, setReceiptConn] = useState<string | null>(null);
   const [receiptRows, setReceiptRows] = useState<RecallReceipt[] | null>(null);
   const [issued, setIssued] = useState<{ connection_id: string; api_key?: string; agent?: string } | null>(null);
-  const [cursorGuide, setCursorGuide] = useState<{ connectionId: string; apiKey?: string } | null>(null);
+  const [setupGuide, setSetupGuide] = useState<{ agent: string; connectionId: string; apiKey?: string } | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [claimTarget, setClaimTarget] = useState<Connection | null>(null);
@@ -156,8 +166,8 @@ export default function AgentsPage() {
         claim_history: createClaimHistory,
       });
       setIssued({ connection_id: res.connection_id, api_key: res.api_key, agent });
-      if (agent === "cursor") {
-        setCursorGuide({ connectionId: res.connection_id, apiKey: res.api_key });
+      if (agent === "cursor" || agent === "doubao") {
+        setSetupGuide({ agent, connectionId: res.connection_id, apiKey: res.api_key });
       }
       setShowAdd(false);
       setLabel("");
@@ -192,8 +202,8 @@ export default function AgentsPage() {
       );
       setUpgradeTarget(null);
       setIssued({ connection_id: res.connection_id, api_key: res.api_key, agent: u.agent });
-      if (u.agent === "cursor") {
-        setCursorGuide({ connectionId: res.connection_id, apiKey: res.api_key });
+      if (u.agent === "cursor" || u.agent === "doubao") {
+        setSetupGuide({ agent: u.agent, connectionId: res.connection_id, apiKey: res.api_key });
       }
       await refreshAgents();
       notify(
@@ -257,7 +267,7 @@ export default function AgentsPage() {
       await api.del(path);
       setRevokeTarget(null);
       setDownloadTarget((t) => (t?.id === c.id ? null : t));
-      setCursorGuide((g) => (g?.connectionId === c.id ? null : g));
+      setSetupGuide((g) => (g?.connectionId === c.id ? null : g));
       await refreshAgents();
       notify("已吊销");
     } catch (e) {
@@ -271,7 +281,7 @@ export default function AgentsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `setup-cursor-${c.id.replace(/-/g, "").slice(0, 12)}.zip`;
+      a.download = `setup-${c.agent}-${c.id.replace(/-/g, "").slice(0, 12)}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -323,9 +333,30 @@ export default function AgentsPage() {
       <Section
         title="连接实例"
         actions={
-          <button type="button" className="btn btn-primary" onClick={() => { setShowAdd(true); setIssued(null); setCursorGuide(null); }}>
-            添加连接
-          </button>
+          <div className="row">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setShowAdd(true);
+                setIssued(null);
+                setSetupGuide(null);
+              }}
+            >
+              添加连接
+            </button>
+            <button
+              type="button"
+              className="btn btn-quiet"
+              onClick={() => {
+                sessionStorage.removeItem("sm.historyAgent");
+                sessionStorage.removeItem("sm.historyConnectionId");
+                navigateTab("history");
+              }}
+            >
+              查看全部历史会话
+            </button>
+          </div>
         }
       >
         <p className="lede muted small">
@@ -334,13 +365,15 @@ export default function AgentsPage() {
           创建连接时勾选「专用 API 密钥」后，用该密钥请求可<strong>自动</strong>归属到本连接，无需再填 <code>connection_id</code>。
           安装：<code>smctl install cursor</code>（
           <a href={DOC_LINKS.installCursor} target="_blank" rel="noreferrer">设计说明</a>
-          ）/ hermes / openclaw / deepseek-harness；
+          ）/ hermes / openclaw / deepseek-harness / doubao；
           适配器文档：
           <a href={DOC_LINKS.hermes} target="_blank" rel="noreferrer">Hermes</a>
           、
           <a href={DOC_LINKS.openclaw} target="_blank" rel="noreferrer">OpenClaw</a>
           、
           <a href={DOC_LINKS.deepseek} target="_blank" rel="noreferrer">DeepSeek</a>
+          、
+          <a href={DOC_LINKS.doubao} target="_blank" rel="noreferrer">豆包</a>
           （
           <a href={DOC_LINKS.agentsSpec} target="_blank" rel="noreferrer">连接规格</a>
           ）。
@@ -353,151 +386,238 @@ export default function AgentsPage() {
         {groups?.map((g) => {
           const expanded = open[g.agent] ?? true;
           return (
-            <div key={g.agent} className="agent-group">
+            <div key={g.agent} className="agent-group agent-group-cards">
               <button
                 type="button"
                 className="agent-group-head"
                 onClick={() => setOpen((o) => ({ ...o, [g.agent]: !expanded }))}
               >
-                <span><strong>{g.display_name}</strong> ({g.agent})</span>
+                <span className="agent-group-title">
+                  <strong>{g.display_name}</strong>
+                  <span className="muted small">/{g.agent}</span>
+                </span>
                 <span className="row muted small">
-                  在线 {g.online_count}/{g.instance_count}
-                  {g.last_activity_at ? ` · 最近 ${fmtTime(g.last_activity_at)}` : ""}
-                  <span
+                  <span className="tnum">在线 {g.online_count}/{g.instance_count}</span>
+                  {g.last_activity_at ? <span>· 最近 {fmtTime(g.last_activity_at)}</span> : null}
+                  <button
+                    type="button"
                     className="btn link"
-                    role="link"
-                    tabIndex={0}
                     onClick={(e) => {
                       e.stopPropagation();
                       navigateTab("history", { historyAgent: g.agent });
                     }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        navigateTab("history", { historyAgent: g.agent });
-                      }
-                    }}
                   >
                     查看历史
-                  </span>
+                  </button>
                 </span>
               </button>
               {expanded && (
-                <DataTable className="mt agent-group-table">
-                  <thead>
-                    <tr>
-                      <th>状态</th>
-                      <th>备注</th>
-                      <th>类型</th>
-                      <th>最后活动</th>
-                      <th>详情</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {g.instances.map((c) => (
-                      <tr key={c.id} id={`agent-conn-${c.id}`}>
-                        <td className="agent-presence">
-                          <div className="presence-row">
-                            <span
-                              className={(c.process_online ?? false) ? "dot ok" : "dot"}
-                              title="进程"
-                            />
-                            <span className="small">{(c.process_online ?? false) ? "进程在线" : "进程离线"}</span>
-                          </div>
-                          <div className="presence-row muted small">
-                            活跃 · {formatActivityAge(c.last_ingest_at, c.last_recall_at)}
-                          </div>
-                        </td>
-                        <td>
-                          <span className="row">
-                            {c.label || "—"}
-                            <button type="button" className="btn link" onClick={() => { setEditId(c.id); setEditLabel(c.label); }}>编辑</button>
+                <div className="conn-card-grid">
+                  {g.instances.map((c) => {
+                    const online = c.process_online ?? false;
+                    return (
+                      <article
+                        key={c.id}
+                        id={`agent-conn-${c.id}`}
+                        className={`conn-card m-surface${online ? " is-online" : ""}`}
+                      >
+                        <header className="conn-card-top">
+                          <span className={`tag${online ? " is-ok" : " is-danger"}`}>
+                            <span className={online ? "dot-online" : "dot"} aria-hidden />
+                            {online ? "进程在线" : "进程离线"}
                           </span>
-                        </td>
-                        <td>{KIND[c.kind] ?? c.kind}</td>
-                        <td>{lastActivity(c)}</td>
-                        <td className="small muted">
+                          <span className="tag is-violet">{KIND[c.kind] ?? c.kind}</span>
+                        </header>
+
+                        <div className="conn-card-main">
+                          <div className="conn-card-title-row">
+                            <h3 className="conn-card-title">{c.label || "未命名连接"}</h3>
+                            <button
+                              type="button"
+                              className="btn link"
+                              onClick={() => {
+                                setEditId(c.id);
+                                setEditLabel(c.label);
+                              }}
+                            >
+                              编辑
+                            </button>
+                          </div>
+
+                          <div className="conn-card-sub">
+                            {(() => {
+                              const age = formatActivityAge(c.last_ingest_at, c.last_recall_at);
+                              return <span className={activityTagClass(age)}>{`活跃 · ${age}`}</span>;
+                            })()}
+                            <span className="muted small">最近 {lastActivity(c)}</span>
+                          </div>
+
+                          {c.kind === "auto" && (
+                            <p className="conn-hint small">提示：多机请「添加连接」并配置 connection_id</p>
+                          )}
+                          {g.agent === "doubao" &&
+                            c.process_online &&
+                            !c.last_ingest_at &&
+                            !c.last_recall_at && (
+                              <p className="conn-hint small">
+                                进程在线仅表示 MCP 心跳正常；须在豆包<strong>工作模式</strong>用 Skill 调用{" "}
+                                <code>memory_ingest</code> 才会出现历史会话。
+                              </p>
+                            )}
+
                           {receiptConn === c.id && receiptRows && (
                             <div className="receipt-inline">
-                              {receiptRows.length === 0 && <div>暂无回执</div>}
+                              {receiptRows.length === 0 && <div className="muted small">暂无回执</div>}
                               {receiptRows.map((r) => (
-                                <div key={r.id}>
+                                <div key={r.id} className="small">
                                   {fmtTime(r.queried_at)} · 命中 {r.hit_count}
                                   {r.degraded ? " · 降级" : ""}
                                 </div>
                               ))}
                             </div>
                           )}
-                          {c.last_ingest_at && <div>上报：{fmtTime(c.last_ingest_at)}</div>}
-                          {c.last_recall_at && <div>召回：{fmtTime(c.last_recall_at)}</div>}
-                          {c.last_heartbeat_at && <div>心跳：{fmtTime(c.last_heartbeat_at)}</div>}
-                          {c.last_agent_path && <div>路径：{c.last_agent_path}</div>}
-                          {c.last_model && <div>模型：{c.last_model}</div>}
-                          {c.daemon_version && <div>守护进程：{c.daemon_version}</div>}
-                          {c.spool_pending != null && c.spool_pending > 0 && <div>积压：{c.spool_pending}</div>}
-                          {c.api_key_name && <div>Key: {c.api_key_name}</div>}
-                          {c.last_external_session_id && (
-                            <div title={c.last_external_session_id}>外部会话：{truncId(c.last_external_session_id)}</div>
-                          )}
-                          {c.created_at && <div>创建于 {fmtTime(c.created_at)}</div>}
-                          {c.kind === "auto" && <div>提示：多机请「添加连接」</div>}
-                        </td>
-                        <td>
+                        </div>
+
+                        <dl className="conn-meta">
+                          {c.api_key_name ? (
+                            <>
+                              <dt>Key</dt>
+                              <dd>{c.api_key_name}</dd>
+                            </>
+                          ) : null}
+                          {c.last_ingest_at ? (
+                            <>
+                              <dt>上报</dt>
+                              <dd>{fmtTime(c.last_ingest_at)}</dd>
+                            </>
+                          ) : null}
+                          {c.last_recall_at ? (
+                            <>
+                              <dt>召回</dt>
+                              <dd>{fmtTime(c.last_recall_at)}</dd>
+                            </>
+                          ) : null}
+                          {c.last_heartbeat_at ? (
+                            <>
+                              <dt>心跳</dt>
+                              <dd>{fmtTime(c.last_heartbeat_at)}</dd>
+                            </>
+                          ) : null}
+                          {c.last_agent_path ? (
+                            <>
+                              <dt>路径</dt>
+                              <dd className="mono">{c.last_agent_path}</dd>
+                            </>
+                          ) : null}
+                          {c.last_model ? (
+                            <>
+                              <dt>模型</dt>
+                              <dd>{c.last_model}</dd>
+                            </>
+                          ) : null}
+                          {c.daemon_version ? (
+                            <>
+                              <dt>守护进程</dt>
+                              <dd>{c.daemon_version}</dd>
+                            </>
+                          ) : null}
+                          {c.spool_pending != null && c.spool_pending > 0 ? (
+                            <>
+                              <dt>积压</dt>
+                              <dd>{c.spool_pending}</dd>
+                            </>
+                          ) : null}
+                          {c.last_external_session_id ? (
+                            <>
+                              <dt>外部会话</dt>
+                              <dd title={c.last_external_session_id}>{truncId(c.last_external_session_id)}</dd>
+                            </>
+                          ) : null}
+                          {c.created_at ? (
+                            <>
+                              <dt>创建</dt>
+                              <dd>{fmtTime(c.created_at)}</dd>
+                            </>
+                          ) : null}
+                          {!c.api_key_name &&
+                            !c.last_ingest_at &&
+                            !c.last_recall_at &&
+                            !c.last_heartbeat_at &&
+                            !c.last_agent_path &&
+                            !c.last_model &&
+                            !c.daemon_version &&
+                            !(c.spool_pending != null && c.spool_pending > 0) &&
+                            !c.last_external_session_id &&
+                            !c.created_at && (
+                              <>
+                                <dt>详情</dt>
+                                <dd className="muted">尚无更多元数据</dd>
+                              </>
+                            )}
+                        </dl>
+
+                        <footer className="conn-card-actions">
                           {c.kind === "auto" && (
-                            <button type="button" className="btn link" onClick={() => openUpgrade(c)}>升级为正式连接</button>
+                            <button type="button" className="btn btn-primary small" onClick={() => openUpgrade(c)}>
+                              升级为正式连接
+                            </button>
                           )}
+
                           {c.kind === "registered" && (
                             <>
                               <button
                                 type="button"
-                                className="btn link"
-                                onClick={() => navigateTab("history", { historyAgent: g.agent, historyConnectionId: c.id })}
+                                className="btn btn-primary small"
+                                onClick={() =>
+                                  navigateTab("history", { historyAgent: g.agent, historyConnectionId: c.id })
+                                }
                               >
-                                查看会话
+                                查看历史会话
                               </button>
-                              <button type="button" className="btn link" onClick={() => void toggleReceipt(c)}>
-                                {receiptConn === c.id ? "收起回执" : "回执"}
+                              <button type="button" className="btn btn-quiet small" onClick={() => void toggleReceipt(c)}>
+                                {receiptConn === c.id ? "收起回执" : "查看回执"}
                               </button>
-                              {g.agent === "cursor" && (
-                                <>
-                                  {c.has_setup_script && (
-                                    <button
-                                      type="button"
-                                      className="btn link"
-                                      onClick={() => {
-                                        setRevokeTarget(null);
-                                        setDownloadTarget(c);
-                                      }}
-                                    >
-                                      下载配置脚本
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    className="btn link"
-                                    onClick={() => setCursorGuide({ connectionId: c.id })}
-                                  >
-                                    配置步骤
-                                  </button>
-                                </>
+                              {c.has_setup_script && (
+                                <button
+                                  type="button"
+                                  className="btn btn-quiet small"
+                                  onClick={() => {
+                                    setRevokeTarget(null);
+                                    setDownloadTarget(c);
+                                  }}
+                                >
+                                  下载配置脚本
+                                </button>
+                              )}
+                              {(g.agent === "cursor" || g.agent === "doubao") && (
+                                <button
+                                  type="button"
+                                  className="btn btn-quiet small"
+                                  onClick={() => setSetupGuide({ agent: g.agent, connectionId: c.id })}
+                                >
+                                  配置步骤
+                                </button>
                               )}
                               <button
                                 type="button"
-                                className="btn link"
+                                className="btn btn-quiet small"
                                 onClick={() => navigateTab("keys", { receiptConnectionId: c.id })}
                               >
                                 密钥页
                               </button>
-                              <button type="button" className="btn link" onClick={() => openClaim(c)}>认领历史</button>
-                              <button type="button" className="btn link danger" onClick={() => openRevoke(c)}>吊销</button>
+                              <button type="button" className="btn btn-quiet small" onClick={() => openClaim(c)}>
+                                认领历史
+                              </button>
+                              <button type="button" className="btn btn-quiet small danger" onClick={() => openRevoke(c)}>
+                                吊销
+                              </button>
                             </>
                           )}
+
                           {c.kind === "device_linked" && (
                             <button
                               type="button"
-                              className="btn link"
+                              className="btn btn-primary small"
                               onClick={() => {
                                 sessionStorage.setItem("sm.scrollToDevices", "1");
                                 navigateTab("keys");
@@ -506,11 +626,11 @@ export default function AgentsPage() {
                               密钥页管理
                             </button>
                           )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </DataTable>
+                        </footer>
+                      </article>
+                    );
+                  })}
+                </div>
               )}
             </div>
           );
@@ -575,7 +695,7 @@ export default function AgentsPage() {
           onClose={() => setIssued(null)}
           wide
           footer={
-            issued.agent === "cursor" && cursorGuide ? (
+            (issued.agent === "cursor" || issued.agent === "doubao") && setupGuide ? (
               <div className="row">
                 <button
                   type="button"
@@ -591,7 +711,9 @@ export default function AgentsPage() {
           <p className="small muted">
             {issued.agent === "cursor"
               ? "Cursor 请按配置步骤保存密钥、下载程序并写入钩子。密钥只显示这一次。"
-              : "将 connection_id 写入 ingest / recall JSON，或在客户端配置环境变量。"}
+              : issued.agent === "doubao"
+                ? "豆包请按配置步骤填写 STDIO 连接器与环境变量。密钥只显示这一次。"
+                : "将 connection_id 写入 ingest / recall JSON，或在客户端配置环境变量。"}
           </p>
           <div className="code-block">
             <span className="code-block-label">connection_id</span>
@@ -604,11 +726,17 @@ export default function AgentsPage() {
             </div>
           )}
         </Modal>
-      ) : cursorGuide ? (
+      ) : setupGuide?.agent === "cursor" ? (
         <CursorSetupGuide
-          connectionId={cursorGuide.connectionId}
-          apiKey={cursorGuide.apiKey}
-          onClose={() => setCursorGuide(null)}
+          connectionId={setupGuide.connectionId}
+          apiKey={setupGuide.apiKey}
+          onClose={() => setSetupGuide(null)}
+        />
+      ) : setupGuide?.agent === "doubao" ? (
+        <DoubaoSetupGuide
+          connectionId={setupGuide.connectionId}
+          apiKey={setupGuide.apiKey}
+          onClose={() => setSetupGuide(null)}
         />
       ) : null}
 
@@ -648,7 +776,9 @@ export default function AgentsPage() {
           danger
           message={
             <>
-              即将下载「{downloadTarget.label || "未命名"}」的 Cursor 配置包。
+              即将下载「{downloadTarget.label || "未命名"}」的{" "}
+              {AGENT_OPTIONS.find((o) => o.id === downloadTarget.agent)?.label || downloadTarget.agent}{" "}
+              配置包。
               <br />
               <strong>包内脚本已写入该连接的 connection_id 与专用 API 密钥（明文）</strong>，
               执行时无需再填写；请勿转发、上传网盘或提交到公开仓库。

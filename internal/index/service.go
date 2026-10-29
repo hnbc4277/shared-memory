@@ -56,7 +56,7 @@ func (s *Service) IndexDoc(ctx context.Context, d Doc) error {
 		errs = append(errs, err)
 		return errors.Join(errs...)
 	}
-	if res.ReindexRequired {
+	if res.ReindexRequired && !forceVector(ctx) {
 		return errors.Join(errs...)
 	}
 	qdr, ok := s.Vector.(*Qdrant)

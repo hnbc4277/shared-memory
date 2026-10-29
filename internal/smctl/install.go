@@ -83,6 +83,7 @@ Cursor 无法可靠地把 hook 返回的 additional_context 注入模型，因�
 6. 子智能体任务：agent_path 使用 ` + "`cursor/<subagent_type>`" + `。
 7. 绝不要在对话或工具参数里打印 API Key、口令或 vault 明文。
 8. 若 memory_recall 失败或超时，正常继续任务，不要卡死；控制台「密钥」与 ` + "`smctl status`" + ` 可查看最近 Recall Receipt。
+9. 多台设备或需稳定实例归属：在 Web「智能体」添加连接，将 ` + "`connection_id`" + ` 写入 MCP 环境变量 ` + "`SHARED_MEMORY_CONNECTION_ID`" + ` 或每次 ingest/recall 传参。
 `
 	return os.WriteFile(filepath.Join(rulesDir, "shared-memory.mdc"), []byte(rule), 0o644)
 }
@@ -205,13 +206,17 @@ func mcpServerEntry(mcpBinary string) map[string]any {
 	if cmd == "" {
 		cmd = "shared-memory-mcp"
 	}
+	env := map[string]string{
+		"SHARED_MEMORY_API_URL": apiURL,
+		"SHARED_MEMORY_API_KEY": apiKey,
+		"SHARED_MEMORY_AGENT":   "cursor",
+	}
+	if c.ConnectionID != "" {
+		env["SHARED_MEMORY_CONNECTION_ID"] = c.ConnectionID
+	}
 	return map[string]any{
 		"command": cmd,
-		"env": map[string]string{
-			"SHARED_MEMORY_API_URL": apiURL,
-			"SHARED_MEMORY_API_KEY": apiKey,
-			"SHARED_MEMORY_AGENT":   "cursor",
-		},
+		"env":     env,
 	}
 }
 

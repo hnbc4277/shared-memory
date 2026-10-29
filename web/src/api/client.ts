@@ -20,6 +20,31 @@ export class ApiError extends Error {
   }
 }
 
+/** Map common English API errors to Chinese for console display. */
+export function localizeApiError(msg: string, status?: number): string {
+  const raw = (msg || "").trim();
+  const lower = raw.toLowerCase();
+  const table: Record<string, string> = {
+    "agents unavailable": "智能体服务暂不可用，请稍后重试或重启 API",
+    "knowledge base unavailable": "知识库服务暂不可用",
+    "entities unavailable": "实体服务暂不可用",
+    "quarantine replay unavailable": "隔离区回放暂不可用",
+    unauthorized: "未授权，请重新登录",
+    "internal error": "服务器内部错误",
+    forbidden: "无权限",
+    "not found": "未找到",
+  };
+  if (table[lower]) return table[lower];
+  for (const [en, zh] of Object.entries(table)) {
+    if (lower.includes(en)) return zh;
+  }
+  if (status === 401) return raw || "未授权，请重新登录";
+  if (status === 403) return raw || "无权限";
+  if (status === 404) return raw || "未找到";
+  if (status === 503) return raw || "服务暂不可用";
+  return raw || "请求失败";
+}
+
 type Fetch = typeof fetch;
 
 export type ClientOptions = { credentials?: RequestCredentials };
@@ -53,7 +78,7 @@ export function createClient(
       } catch {
         /* plain-text error body */
       }
-      throw new ApiError(resp.status, msg);
+      throw new ApiError(resp.status, localizeApiError(String(msg), resp.status));
     }
     return (text ? JSON.parse(text) : undefined) as T;
   }
@@ -76,7 +101,7 @@ export function createClient(
       } catch {
         /* plain */
       }
-      throw new ApiError(resp.status, msg);
+      throw new ApiError(resp.status, localizeApiError(String(msg), resp.status));
     }
     return (text ? JSON.parse(text) : undefined) as T;
   }
@@ -92,7 +117,13 @@ export function createClient(
     });
     if (!resp.ok) {
       const text = await resp.text();
-      throw new ApiError(resp.status, text || resp.statusText);
+      let msg = text || resp.statusText;
+      try {
+        msg = JSON.parse(text).error ?? msg;
+      } catch {
+        /* plain */
+      }
+      throw new ApiError(resp.status, localizeApiError(String(msg), resp.status));
     }
     return resp.blob();
   }

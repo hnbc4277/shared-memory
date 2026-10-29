@@ -245,6 +245,18 @@ func (s *Service) Ingest(ctx context.Context, accountID uuid.UUID, req IngestMes
 		}
 	}
 	transcriptLost := pol.StoreTranscript && objectKey == nil
+	if err := bindSessionConnection(ctx, tx, accountID, sessionID, req.ConnectionID); err != nil {
+		s.dropObject(objectKey)
+		return IngestResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE messages m SET connection_id = s.connection_id
+		FROM sessions s
+		WHERE m.id = $1 AND m.session_id = s.id AND s.connection_id IS NOT NULL
+		  AND m.connection_id IS NULL`, messageID); err != nil {
+		s.dropObject(objectKey)
+		return IngestResult{}, fmt.Errorf("message connection_id: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `UPDATE sessions SET ended_at = $2, degraded = degraded OR $3 WHERE id = $1`,
 		sessionID, now, transcriptLost); err != nil {
 		s.dropObject(objectKey)
@@ -347,4 +359,20 @@ func insertToolCalls(ctx context.Context, tx pgx.Tx, accountID, sessionID, messa
 		}
 	}
 	return nil
+}
+
+func bindSessionConnection(ctx context.Context, tx pgx.Tx, accountID, sessionID uuid.UUID, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	cid, err := uuid.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%w: invalid connection_id", ErrInvalid)
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE sessions SET connection_id = $1
+		WHERE id = $2 AND account_id = $3 AND (connection_id IS NULL OR connection_id = $1)`,
+		cid, sessionID, accountID)
+	return err
 }

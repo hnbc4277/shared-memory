@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"sharedmemory/internal/audit"
 )
@@ -36,7 +37,11 @@ func (r *Router) handleRegister(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) handleMe(w http.ResponseWriter, req *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"account_id": accountOf(req).String()})
+	// public_api_url comes from API .env PUBLIC_API_URL (baked into setup scripts / MCP guides).
+	writeJSON(w, http.StatusOK, map[string]string{
+		"account_id":      accountOf(req).String(),
+		"public_api_url":  strings.TrimRight(strings.TrimSpace(r.PublicAPIURL), "/"),
+	})
 }
 
 type createKeyReq struct {

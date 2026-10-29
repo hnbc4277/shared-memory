@@ -19,17 +19,18 @@ import (
 var ErrNotFound = errors.New("memory not found")
 
 type Memory struct {
-	ID              uuid.UUID  `json:"id"`
-	ProjectID       *uuid.UUID `json:"project_id"`
-	Scope           string     `json:"scope"`
-	Kind            string     `json:"kind"`
-	Body            string     `json:"body"`
-	SourceSessionID *uuid.UUID `json:"source_session_id"`
-	SourceAgentPath string     `json:"source_agent_path"`
-	Supersedes      *uuid.UUID `json:"supersedes"`
-	Invalidated     bool       `json:"invalidated"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID                 uuid.UUID  `json:"id"`
+	ProjectID          *uuid.UUID `json:"project_id"`
+	Scope              string     `json:"scope"`
+	Kind               string     `json:"kind"`
+	Body               string     `json:"body"`
+	SourceSessionID    *uuid.UUID `json:"source_session_id"`
+	SourceConnectionID *uuid.UUID `json:"source_connection_id,omitempty"`
+	SourceAgentPath    string     `json:"source_agent_path"`
+	Supersedes         *uuid.UUID `json:"supersedes"`
+	Invalidated        bool       `json:"invalidated"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 type Filter struct {
@@ -52,12 +53,12 @@ func NewStore(pool *pgxpool.Pool, idx *index.Service) *Store {
 	return &Store{pool: pool, index: idx}
 }
 
-const columns = `id, project_id, scope, COALESCE(kind,''), COALESCE(body,''), source_session_id,
+const columns = `id, project_id, scope, COALESCE(kind,''), COALESCE(body,''), source_session_id, source_connection_id,
 	COALESCE(source_agent_path,''), supersedes, invalidated, created_at, updated_at`
 
 func scan(row pgx.Row) (Memory, error) {
 	var m Memory
-	err := row.Scan(&m.ID, &m.ProjectID, &m.Scope, &m.Kind, &m.Body, &m.SourceSessionID,
+	err := row.Scan(&m.ID, &m.ProjectID, &m.Scope, &m.Kind, &m.Body, &m.SourceSessionID, &m.SourceConnectionID,
 		&m.SourceAgentPath, &m.Supersedes, &m.Invalidated, &m.CreatedAt, &m.UpdatedAt)
 	return m, err
 }
@@ -68,8 +69,8 @@ func (s *Store) project(ctx context.Context, accountID uuid.UUID, m Memory) {
 	}
 	err := s.index.IndexDoc(ctx, index.Doc{
 		ID: m.ID, DocType: index.DocMemory, AccountID: accountID, ProjectID: m.ProjectID, Scope: m.Scope,
-		Kind: m.Kind, Body: m.Body, SourceSessionID: m.SourceSessionID, SourceAgentPath: m.SourceAgentPath,
-		CreatedAt: m.CreatedAt,
+		Kind: m.Kind, Body: m.Body, SourceSessionID: m.SourceSessionID, SourceConnectionID: m.SourceConnectionID,
+		SourceAgentPath: m.SourceAgentPath, CreatedAt: m.CreatedAt,
 	})
 	if err != nil {
 		log.Printf("memory index %s: %v", m.ID, err)
@@ -98,7 +99,7 @@ func (s *Store) ReindexAll(ctx context.Context) (int, error) {
 		for rows.Next() {
 			var it item
 			if err := rows.Scan(&it.account, &it.m.ID, &it.m.ProjectID, &it.m.Scope, &it.m.Kind, &it.m.Body,
-				&it.m.SourceSessionID, &it.m.SourceAgentPath, &it.m.Supersedes, &it.m.Invalidated,
+				&it.m.SourceSessionID, &it.m.SourceConnectionID, &it.m.SourceAgentPath, &it.m.Supersedes, &it.m.Invalidated,
 				&it.m.CreatedAt, &it.m.UpdatedAt); err != nil {
 				rows.Close()
 				return n, err
@@ -113,7 +114,7 @@ func (s *Store) ReindexAll(ctx context.Context) (int, error) {
 			if err := s.index.IndexDoc(ctx, index.Doc{
 				ID: it.m.ID, DocType: index.DocMemory, AccountID: it.account, ProjectID: it.m.ProjectID,
 				Scope: it.m.Scope, Kind: it.m.Kind, Body: it.m.Body, SourceSessionID: it.m.SourceSessionID,
-				SourceAgentPath: it.m.SourceAgentPath, CreatedAt: it.m.CreatedAt,
+				SourceConnectionID: it.m.SourceConnectionID, SourceAgentPath: it.m.SourceAgentPath, CreatedAt: it.m.CreatedAt,
 			}); err != nil {
 				return n, fmt.Errorf("reindex memory %s: %w", it.m.ID, err)
 			}
@@ -158,8 +159,8 @@ func (s *Store) ReindexBySourceConnection(ctx context.Context, accountID, connec
 		}
 		if err := s.index.IndexDoc(ctx, index.Doc{
 			ID: m.ID, DocType: index.DocMemory, AccountID: accountID, ProjectID: m.ProjectID, Scope: m.Scope,
-			Kind: m.Kind, Body: m.Body, SourceSessionID: m.SourceSessionID, SourceAgentPath: m.SourceAgentPath,
-			CreatedAt: m.CreatedAt,
+			Kind: m.Kind, Body: m.Body, SourceSessionID: m.SourceSessionID, SourceConnectionID: m.SourceConnectionID,
+			SourceAgentPath: m.SourceAgentPath, CreatedAt: m.CreatedAt,
 		}); err != nil {
 			return n, fmt.Errorf("reindex memory %s: %w", m.ID, err)
 		}
@@ -197,9 +198,9 @@ func (s *Store) Add(ctx context.Context, accountID uuid.UUID, m Memory) (Memory,
 	}
 	m.ID = uuid.New()
 	out, err := scan(s.pool.QueryRow(ctx, `
-		INSERT INTO memories (id, account_id, project_id, scope, kind, body, source_session_id, source_agent_path, supersedes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING `+columns,
-		m.ID, accountID, m.ProjectID, m.Scope, m.Kind, m.Body, m.SourceSessionID, m.SourceAgentPath, m.Supersedes))
+		INSERT INTO memories (id, account_id, project_id, scope, kind, body, source_session_id, source_connection_id, source_agent_path, supersedes)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING `+columns,
+		m.ID, accountID, m.ProjectID, m.Scope, m.Kind, m.Body, m.SourceSessionID, m.SourceConnectionID, m.SourceAgentPath, m.Supersedes))
 	if err != nil {
 		return Memory{}, false, fmt.Errorf("insert memory: %w", err)
 	}

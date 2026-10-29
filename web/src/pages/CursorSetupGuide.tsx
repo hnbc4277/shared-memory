@@ -1,5 +1,5 @@
-import { API_BASE } from "../api/client";
 import { CodeBlock, Modal } from "../ui";
+import { usePublicApiUrl } from "../usePublicApiUrl";
 
 const HOOK_BIN = "%USERPROFILE%\\.shared-memory\\smhook.exe";
 const MCP_BIN = "%USERPROFILE%\\.shared-memory\\shared-memory-mcp.exe";
@@ -14,9 +14,10 @@ export function CursorSetupGuide({
   apiKey?: string;
   onClose?: () => void;
 }) {
+  const publicApi = usePublicApiUrl();
   const key = apiKey && apiKey.length > 0 ? apiKey : "<专用密钥>";
   const cred = {
-    api_url: API_BASE,
+    api_url: publicApi,
     api_key: key,
     connection_id: connectionId,
   };
@@ -28,7 +29,7 @@ export function CursorSetupGuide({
   const mcp = {
     command: MCP_BIN,
     env: {
-      SHARED_MEMORY_API_URL: API_BASE,
+      SHARED_MEMORY_API_URL: publicApi,
       SHARED_MEMORY_API_KEY: key,
       SHARED_MEMORY_AGENT: "cursor",
       SHARED_MEMORY_CONNECTION_ID: connectionId,

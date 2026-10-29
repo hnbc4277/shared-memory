@@ -39,14 +39,18 @@ func resolveAPI() (hook.API, error) {
 	if daemonURL == "" {
 		daemonURL = hook.DefaultDaemonURL
 	}
+	connID := strings.TrimSpace(os.Getenv(cred.EnvConnectionID))
 	if hook.DaemonReachable(daemonURL, nil) {
-		return &hook.HTTPAPI{BaseURL: daemonURL}, nil
+		return &hook.HTTPAPI{BaseURL: daemonURL, ConnectionID: connID}, nil
 	}
 	c, err := cred.Resolve()
 	if err != nil {
 		return nil, err
 	}
-	return &hook.HTTPAPI{BaseURL: c.APIURL, APIKey: c.APIKey}, nil
+	if connID == "" {
+		connID = c.ConnectionID
+	}
+	return &hook.HTTPAPI{BaseURL: c.APIURL, APIKey: c.APIKey, ConnectionID: connID}, nil
 }
 
 func init() {

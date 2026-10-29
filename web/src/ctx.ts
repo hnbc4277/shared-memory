@@ -18,6 +18,8 @@ export interface AppCtx {
       agentsConnectionId?: string;
     },
   ) => void;
+  pendingConfirm: { vault: number; artifacts: number };
+  openCmdPalette: () => void;
 }
 
 export const Ctx = createContext<AppCtx | null>(null);

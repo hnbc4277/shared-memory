@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 520" font-family="Arial,sans-serif" font-size="13">
+  <rect width="920" height="520" fill="#f4f6f8"/>
+  <rect x="0" y="0" width="200" height="520" fill="#1a2332"/>
+  <text x="24" y="36" fill="#fff" font-weight="600" font-size="15">Shared Memory</text>
+  <text x="24" y="115" fill="#fff">History</text>
+  <rect x="200" y="0" width="720" height="56" fill="#fff" stroke="#dde3ea"/>
+  <text x="220" y="34" fill="#333" font-size="18" font-weight="600">History</text>
+  <rect x="212" y="120" width="696" height="380" rx="8" fill="#fff" stroke="#dde3ea"/>
+  <text x="240" y="160" fill="#888">Main content</text>
+</svg>

@@ -3,6 +3,7 @@
 export type IngestRequest = {
   session_id?: string;
   external_session_id?: string;
+  connection_id?: string;
   project_id?: string;
   title?: string;
   agent?: string;
@@ -28,6 +29,7 @@ export type RecallRequest = {
   query: string;
   project_id?: string;
   top_k?: number;
+  connection_id?: string;
 };
 
 export type RecallResult = {
@@ -152,12 +154,20 @@ export class Client {
     return JSON.parse(text) as T;
   }
 
+  private withConnectionId<T extends { connection_id?: string }>(body: T): T {
+    const env = (process.env.SHARED_MEMORY_CONNECTION_ID ?? "").trim();
+    if (env && !body.connection_id) {
+      return { ...body, connection_id: env };
+    }
+    return body;
+  }
+
   ingest(req: IngestRequest): Promise<IngestResult> {
-    return this.request<IngestResult>("POST", "/v1/ingest", req);
+    return this.request<IngestResult>("POST", "/v1/ingest", this.withConnectionId(req));
   }
 
   recall(req: RecallRequest): Promise<RecallResult> {
-    return this.request<RecallResult>("POST", "/v1/recall", req);
+    return this.request<RecallResult>("POST", "/v1/recall", this.withConnectionId(req));
   }
 
   listSessions(filter: ListSessionsFilter = {}): Promise<Session[]> {

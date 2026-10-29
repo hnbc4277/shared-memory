@@ -26,9 +26,10 @@ type API interface {
 
 // HTTPAPI posts JSON with optional Bearer auth (daemon needs no key).
 type HTTPAPI struct {
-	BaseURL    string
-	APIKey     string
-	HTTPClient *http.Client
+	BaseURL        string
+	APIKey         string
+	ConnectionID   string
+	HTTPClient     *http.Client
 }
 
 func (c *HTTPAPI) client() *http.Client {
@@ -39,17 +40,29 @@ func (c *HTTPAPI) client() *http.Client {
 }
 
 func (c *HTTPAPI) Ingest(ctx context.Context, body map[string]any) error {
-	return c.post(ctx, "/v1/ingest", body, nil)
+	return c.post(ctx, "/v1/ingest", c.withConnectionID(body), nil)
 }
 
 func (c *HTTPAPI) Recall(ctx context.Context, query string) (string, error) {
 	var out struct {
 		Context string `json:"context"`
 	}
-	if err := c.post(ctx, "/v1/recall", map[string]any{"query": query, "top_k": 8, "source": "hook"}, &out); err != nil {
+	body := c.withConnectionID(map[string]any{"query": query, "top_k": 8, "source": "hook"})
+	if err := c.post(ctx, "/v1/recall", body, &out); err != nil {
 		return "", err
 	}
 	return out.Context, nil
+}
+
+func (c *HTTPAPI) withConnectionID(body map[string]any) map[string]any {
+	if c.ConnectionID == "" {
+		return body
+	}
+	if v, ok := body["connection_id"].(string); ok && strings.TrimSpace(v) != "" {
+		return body
+	}
+	body["connection_id"] = c.ConnectionID
+	return body
 }
 
 func (c *HTTPAPI) post(ctx context.Context, path string, body any, out any) error {

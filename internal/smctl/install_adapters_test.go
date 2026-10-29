@@ -35,6 +35,46 @@ func TestFindAdapterDir_FromWD(t *testing.T) {
 	}
 }
 
+func TestInstallDoubao_WritesKit(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "adapters", "doubao")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: shared-memory\n---\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(src, "mcp.connector.example.json"), []byte(`{"name":"shared-memory"}`+"\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(src, "README.md"), []byte("# doubao\n"), 0o644)
+	wd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(wd) }()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dst, err := InstallDoubao()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"SKILL.md", "mcp.connector.example.json", "mcp.connector.json", "INSTALL.txt", "sm-connection-heartbeat.sh", "sm-connection-heartbeat.ps1"} {
+		b, err := os.ReadFile(filepath.Join(dst, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(b) == 0 {
+			t.Fatalf("empty %s", name)
+		}
+	}
+	conn, _ := os.ReadFile(filepath.Join(dst, "mcp.connector.json"))
+	if !strings.Contains(string(conn), `"SHARED_MEMORY_AGENT": "doubao"`) {
+		t.Fatalf("connector missing agent: %s", conn)
+	}
+	note, _ := os.ReadFile(filepath.Join(dst, "INSTALL.txt"))
+	if !strings.Contains(string(note), "SKILL.md") || !strings.Contains(string(note), "sm-connection-heartbeat") {
+		t.Fatalf("INSTALL.txt incomplete: %s", note)
+	}
+}
+
 func TestInstallDeepSeek_WritesKit(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -10,6 +10,7 @@ export default function KBPage() {
   const { api, notify } = useApp();
   const fileRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
+  const [fileName, setFileName] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const list = useLoad(() => api.get<{ documents: KBDocument[] }>("/v1/kb/documents", { limit: 100 }), [api]);
 
@@ -34,6 +35,7 @@ export default function KBPage() {
       throw new Error(msg);
     }
     setTitle("");
+    setFileName("");
     if (fileRef.current) fileRef.current.value = "";
     await list.reload();
     notify("已上传，正在解析");
@@ -69,17 +71,27 @@ export default function KBPage() {
           <span className="muted small">账号全局资料；召回时经 memory_recall 注入（可在设置关闭）</span>
         }
       >
-        <div className="row">
+        <div className="row kb-upload-row">
           <input placeholder="标题（可选）" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".md,.markdown,.txt,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void upload(f).catch((err) => notify((err as Error).message, "error"));
-            }}
-          />
+          <div className="file-picker">
+            <input
+              ref={fileRef}
+              className="sr-only"
+              type="file"
+              accept=".md,.markdown,.txt,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                setFileName(f?.name ?? "");
+                if (f) void upload(f).catch((err) => notify((err as Error).message, "error"));
+              }}
+            />
+            <button type="button" className="btn btn-quiet" onClick={() => fileRef.current?.click()}>
+              选择文件
+            </button>
+            <span className={`file-picker-name muted small${fileName ? "" : " is-empty"}`}>
+              {fileName || "未选择任何文件"}
+            </span>
+          </div>
         </div>
         <ErrorLine error={list.error} />
         {list.data?.documents.length === 0 && <Empty>知识库为空。上传文档，或从成稿/附件「加入知识库」。</Empty>}

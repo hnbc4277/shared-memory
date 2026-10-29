@@ -16,6 +16,11 @@ func (r *Router) handleIngest(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	accountID := accountOf(req)
+	resolved, ok := r.resolveConnectionID(w, req, accountID, body.ConnectionID)
+	if !ok {
+		return
+	}
+	body.ConnectionID = resolved
 	res, err := r.Sessions.Ingest(req.Context(), accountID, body)
 	if err != nil {
 		if errors.Is(err, session.ErrInvalid) && r.Quarantine != nil {
@@ -25,6 +30,7 @@ func (r *Router) handleIngest(w http.ResponseWriter, req *http.Request) {
 		fail(w, err)
 		return
 	}
+	r.recordIngestAgents(req, accountID, body)
 	writeJSON(w, http.StatusCreated, res)
 }
 
@@ -56,8 +62,12 @@ func (r *Router) handleListSessions(w http.ResponseWriter, req *http.Request) {
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
+	connectionID, ok := optionalUUID(w, q.Get("connection_id"), "connection_id")
+	if !ok {
+		return
+	}
 	list, err := r.Sessions.List(req.Context(), accountOf(req), session.ListFilter{
-		ProjectID: projectID, Agent: q.Get("agent"), AgentPath: q.Get("agent_path"),
+		ProjectID: projectID, ConnectionID: connectionID, Agent: q.Get("agent"), AgentPath: q.Get("agent_path"),
 		From: from, To: to, Limit: limit, Offset: offset,
 	})
 	if err != nil {

@@ -91,6 +91,16 @@ func (h *Handler) sessionExists(ctx context.Context, accountID, sessionID uuid.U
 	return ok, err
 }
 
+func (h *Handler) sessionConnectionID(ctx context.Context, accountID, sessionID uuid.UUID) (*uuid.UUID, error) {
+	var cid *uuid.UUID
+	err := h.Pool.QueryRow(ctx, `SELECT connection_id FROM sessions WHERE id = $1 AND account_id = $2`,
+		sessionID, accountID).Scan(&cid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return cid, err
+}
+
 func (h *Handler) handleMessage(ctx context.Context, job queue.Job) error {
 	if ok, err := h.sessionExists(ctx, job.AccountID, job.SessionID); err != nil || !ok {
 		// The session was deleted before processing; nothing left to derive.
@@ -101,6 +111,10 @@ func (h *Handler) handleMessage(ctx context.Context, job queue.Job) error {
 		return nil
 	}
 	sessionID := job.SessionID
+	sourceConn, err := h.sessionConnectionID(ctx, job.AccountID, sessionID)
+	if err != nil {
+		return err
+	}
 	summary, err := h.Deriver.Summarize(ctx, content)
 	if err != nil {
 		return err
@@ -108,14 +122,14 @@ func (h *Handler) handleMessage(ctx context.Context, job queue.Job) error {
 	line := fmt.Sprintf("[%s·%s] %s", job.Role, job.AgentPath, summary)
 	if _, err := h.Memories.UpsertRolling(ctx, job.AccountID, memory.Memory{
 		ProjectID: job.ProjectID, Scope: semantic.ScopeProject, Kind: semantic.KindEpisodeSummary,
-		SourceSessionID: &sessionID, SourceAgentPath: job.AgentPath,
+		SourceSessionID: &sessionID, SourceConnectionID: sourceConn, SourceAgentPath: job.AgentPath,
 	}, func(old string) string { return appendLine(old, line, episodeLines) }); err != nil {
 		return fmt.Errorf("episode summary: %w", err)
 	}
 	if job.ProjectID != nil {
 		if _, err := h.Memories.UpsertRolling(ctx, job.AccountID, memory.Memory{
 			ProjectID: job.ProjectID, Scope: semantic.ScopeProject, Kind: semantic.KindRunningSummary,
-			SourceSessionID: &sessionID, SourceAgentPath: job.AgentPath,
+			SourceSessionID: &sessionID, SourceConnectionID: sourceConn, SourceAgentPath: job.AgentPath,
 		}, func(old string) string { return appendLine(old, line, runningLines) }); err != nil {
 			return fmt.Errorf("running summary: %w", err)
 		}
@@ -127,7 +141,7 @@ func (h *Handler) handleMessage(ctx context.Context, job queue.Job) error {
 	profileDirty := false
 	for _, e := range extracted {
 		m := memory.Memory{ProjectID: job.ProjectID, Scope: e.Scope, Kind: e.Kind, Body: e.Body,
-			SourceSessionID: &sessionID, SourceAgentPath: job.AgentPath}
+			SourceSessionID: &sessionID, SourceConnectionID: sourceConn, SourceAgentPath: job.AgentPath}
 		saved, created, err := h.Memories.Add(ctx, job.AccountID, m)
 		if err != nil {
 			return fmt.Errorf("add %s: %w", e.Kind, err)
@@ -200,10 +214,17 @@ func (h *Handler) handleAttachment(ctx context.Context, job queue.Job) error {
 		job.AttachmentID, job.AccountID, text); err != nil {
 		return err
 	}
+	var sourceConn *uuid.UUID
+	if sessionID != nil {
+		sourceConn, err = h.sessionConnectionID(ctx, job.AccountID, *sessionID)
+		if err != nil {
+			return err
+		}
+	}
 	_, _, err = h.Memories.Add(ctx, job.AccountID, memory.Memory{
 		ProjectID: projectID, Scope: semantic.ScopeProject, Kind: semantic.KindAttachmentText,
-		Body:            fmt.Sprintf("附件 %s：%s", name, semantic.Truncate(semantic.Collapse(text), attachmentHead)),
-		SourceSessionID: sessionID, SourceAgentPath: agentPath,
+		Body: fmt.Sprintf("附件 %s：%s", name, semantic.Truncate(semantic.Collapse(text), attachmentHead)),
+		SourceSessionID: sessionID, SourceConnectionID: sourceConn, SourceAgentPath: agentPath,
 	})
 	return err
 }

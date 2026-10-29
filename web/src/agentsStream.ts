@@ -28,7 +28,13 @@ export function subscribeAgentsStream(
         signal: ac.signal,
       });
       if (!resp.ok || !resp.body) {
-        throw new Error(`agents stream: HTTP ${resp.status}`);
+        throw new Error(
+          resp.status === 503
+            ? "智能体服务暂不可用，请稍后重试或重启 API"
+            : resp.status === 401
+              ? "未授权，请重新登录"
+              : `智能体实时通道失败（HTTP ${resp.status}）`,
+        );
       }
       const reader = resp.body.getReader();
       const dec = new TextDecoder();

@@ -67,6 +67,135 @@ func InstallOpenClaw() (string, error) {
 	return dst, nil
 }
 
+// InstallDoubao copies the Doubao MCP+Skill kit to ~/.shared-memory/doubao
+// and writes a personalized mcp.connector.json plus INSTALL.txt.
+func InstallDoubao() (string, error) {
+	src, err := findAdapterDir("doubao")
+	if err != nil {
+		return "", err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dst := filepath.Join(home, ".shared-memory", "doubao")
+	if err := copyTree(src, dst); err != nil {
+		return "", err
+	}
+	mcp, _ := lookBeside("shared-memory-mcp")
+	if mcp == "" {
+		mcp, _ = lookBeside("mcp")
+	}
+	if mcp == "" {
+		mcp = "shared-memory-mcp"
+	}
+	apiURL := "http://127.0.0.1:18765"
+	apiKey := "sm_..."
+	connID := ""
+	if c, err := cred.Resolve(); err == nil {
+		if c.APIURL != "" {
+			apiURL = c.APIURL
+		}
+		if c.APIKey != "" {
+			apiKey = c.APIKey
+		}
+		connID = strings.TrimSpace(c.ConnectionID)
+	}
+	connector := fmt.Sprintf(`{
+  "name": "shared-memory",
+  "transport": "stdio",
+  "command": %q,
+  "args": [],
+  "env": {
+    "SHARED_MEMORY_API_URL": %q,
+    "SHARED_MEMORY_API_KEY": %q,
+    "SHARED_MEMORY_AGENT": "doubao",
+    "SHARED_MEMORY_CONNECTION_ID": %q
+  }
+}
+`, mcp, apiURL, apiKey, connID)
+	if err := os.WriteFile(filepath.Join(dst, "mcp.connector.json"), []byte(connector), 0o644); err != nil {
+		return "", err
+	}
+	if err := writeKeepaliveScripts(dst); err != nil {
+		return "", err
+	}
+	skillNote := ""
+	if skillDst, err := installDoubaoUserSkill(filepath.Join(dst, "SKILL.md")); err != nil {
+		skillNote = "Skill auto-install skipped: " + err.Error() + "\n" +
+			"  Manual: copy SKILL.md into Doubao .user_skills/shared-memory/\n"
+	} else {
+		skillNote = "Skill auto-installed → " + skillDst + "\n" +
+			"  Restart 豆包工作 or open a new task if the skill list does not refresh.\n"
+		_ = os.WriteFile(filepath.Join(dst, "SKILL_INSTALLED.txt"), []byte(skillDst+"\n"), 0o644)
+	}
+	note := doubaoInstallNote(dst, credEnvBlock(), skillNote)
+	if err := os.WriteFile(filepath.Join(dst, "INSTALL.txt"), []byte(note), 0o644); err != nil {
+		return "", err
+	}
+	return dst, nil
+}
+
+// doubaoUserSkillsRoots lists known Doubao desktop .user_skills directories (best-effort; layout may change).
+func doubaoUserSkillsRoots() []string {
+	var roots []string
+	add := func(p string) {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			roots = append(roots, p)
+		}
+	}
+	if local := os.Getenv("LOCALAPPDATA"); local != "" {
+		add(filepath.Join(local, "Doubao", "User Data", "Default", ".doubao", "agent_mode", "workspace", ".user_skills"))
+		add(filepath.Join(local, "Doubao", "User Data", "Default", ".doubaowork", "agent_mode", "workspace", ".user_skills"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		add(filepath.Join(home, "Library", "Application Support", "Doubao", "User Data", "Default", ".doubao", "agent_mode", "workspace", ".user_skills"))
+		add(filepath.Join(home, ".doubao", "agent_mode", "workspace", ".user_skills"))
+		add(filepath.Join(home, ".doubaowork", "agent_mode", "workspace", ".user_skills"))
+	}
+	return roots
+}
+
+// installDoubaoUserSkill copies SKILL.md into Doubao's .user_skills/shared-memory/.
+func installDoubaoUserSkill(skillPath string) (string, error) {
+	body, err := os.ReadFile(skillPath)
+	if err != nil {
+		return "", err
+	}
+	roots := doubaoUserSkillsRoots()
+	if len(roots) == 0 {
+		return "", fmt.Errorf("no Doubao .user_skills candidate path on this OS")
+	}
+	var destRoot string
+	for _, root := range roots {
+		parent := filepath.Dir(root)
+		if st, err := os.Stat(parent); err == nil && st.IsDir() {
+			destRoot = root
+			break
+		}
+		grand := filepath.Dir(parent)
+		gg := filepath.Dir(grand)
+		profile := filepath.Dir(gg)
+		if st, err := os.Stat(profile); err == nil && st.IsDir() {
+			destRoot = root
+			break
+		}
+	}
+	if destRoot == "" {
+		destRoot = roots[0]
+	}
+	skillDir := filepath.Join(destRoot, "shared-memory")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		return "", err
+	}
+	out := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(out, body, 0o644); err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
 // InstallDeepSeek writes hooks.json + cordis snippet under ~/.shared-memory/deepseek-harness
 // with absolute smhook/mcp paths when resolvable.
 func InstallDeepSeek() (string, error) {
@@ -288,6 +417,28 @@ Kit copied to:
 5. agent=xiaolongxia; subagents → agent_path=xiaolongxia/<id>
 6. Connection heartbeat (process_online): the adapter pings while loaded.
 `+keepaliveInstallNote(), dir, dir, env)) + "\n"
+}
+
+func doubaoInstallNote(dir, env, skillNote string) string {
+	return strings.TrimSpace(fmt.Sprintf(`
+Shared Memory — 豆包 (Doubao) install (smctl) — plan C: MCP + Skill
+
+Files written to:
+  %s
+  - mcp.connector.json   (paste into 豆包工作 custom MCP connector — still manual)
+  - SKILL.md
+  - mcp.connector.example.json
+
+Skill:
+%s
+1. Ensure shared-memory-mcp is on PATH (or edit command in mcp.connector.json).
+2. In 豆包工作, add a custom STDIO MCP connector using mcp.connector.json fields (UI only; no public config file).
+3. Environment (also embedded in mcp.connector.json when smctl login succeeded):
+
+%s
+4. Injection: model-driven via Skill + MCP (not silent hooks). Check Recall Receipts.
+5. agent=doubao. Connection heartbeat: MCP ticker while shared-memory-mcp runs.
+`+keepaliveInstallNote(), dir, skillNote, env)) + "\n"
 }
 
 func deepSeekInstallNote(dir, env string) string {

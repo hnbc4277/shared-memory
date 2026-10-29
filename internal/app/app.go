@@ -13,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"sharedmemory/internal/account"
+	"sharedmemory/internal/agents"
 	"sharedmemory/internal/artifact"
 	"sharedmemory/internal/attachment"
 	"sharedmemory/internal/audit"
@@ -111,6 +112,17 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		log.Printf("search index unavailable, recall falls back to postgres: %v", err)
 	}
 	log.Printf("vector collection %s (dim %d, min score %.2f)", collection, embedder.Dim(), minScore)
+	embStore := semantic.NewStore(pool, cipher)
+	embResolver := &semantic.Resolver{
+		Settings:       embStore,
+		DeployProtocol: cfg.EmbedderProtocol,
+		DeployURL:      cfg.EmbedderURL,
+		DeployModel:    cfg.EmbedderModel,
+		DeployAPIKey:   cfg.EmbedderAPIKey,
+		DeployDim:      cfg.EmbedderDim,
+		MaxDim:         cfg.EmbedderMaxDim,
+	}
+	a.Index.Resolver = embResolver
 	a.Memories = memory.NewStore(pool, a.Index)
 
 	authStore := auth.NewStore(pool)
@@ -128,20 +140,33 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Policies: policies,
 		Sessions: &session.Service{Pool: pool, Objects: objects, Queue: a.Streams, Policies: policies,
 			Projects: projects, Vault: vaults, Artifacts: artifacts},
-		Attachments: attachments,
-		Memories:    a.Memories,
-		Recall:      &recall.Service{Pool: pool, Index: a.Index, Memories: a.Memories, Policies: policies, Entities: entities, KB: kbStore},
-		Vault:       vaults,
-		Artifacts:   artifacts,
-		Audit:       audit.NewLog(pool),
-		Deleter:     &account.Deleter{Pool: pool, Objects: objects, Index: a.Index},
-		Index:       a.Index,
-		Devices:     device.NewStore(pool, authStore),
-		Quarantine:  &quarantine.Store{Pool: pool},
-		Entities:    entities,
-		KB:          kbStore,
-		RateLimit:   &ratelimit.Limiter{Redis: a.Redis, Limit: 120, Window: time.Minute},
-		CORSOrigins: cfg.CORSOrigins,
+		Attachments:   attachments,
+		Memories:      a.Memories,
+		Recall:        &recall.Service{Pool: pool, Index: a.Index, Memories: a.Memories, Policies: policies, Entities: entities, KB: kbStore},
+		Vault:         vaults,
+		Artifacts:     artifacts,
+		Audit:         audit.NewLog(pool),
+		Deleter:       &account.Deleter{Pool: pool, Objects: objects, Index: a.Index},
+		Index:         a.Index,
+		Devices:       device.NewStore(pool, authStore),
+		Quarantine:    &quarantine.Store{Pool: pool},
+		Entities:      entities,
+		KB:            kbStore,
+		Agents:        agents.NewStore(pool, authStore),
+		Embedding:     embStore,
+		EmbedResolver: embResolver,
+		EmbedMaxDim:   cfg.EmbedderMaxDim,
+		RateLimit: &ratelimit.Limiter{
+			Redis: a.Redis, Limit: cfg.RateLimitPerMin, PublicLimit: cfg.AuthRateLimitPerMin,
+			EmailAuthLimit: cfg.AuthEmailRateLimitPerMin, Window: time.Minute,
+		},
+		CORSOrigins:  cfg.CORSOrigins,
+		WebStaticDir: cfg.WebStaticDir,
+		DownloadsDir: resolveDownloadsDir(),
+		PublicAPIURL: cfg.PublicAPIURL,
+	}
+	if a.Deps.DownloadsDir != "" {
+		log.Printf("client downloads from %s", a.Deps.DownloadsDir)
 	}
 	deriver := semantic.Deriver(semantic.Heuristic{})
 	if cfg.LLMDeriverURL != "" {
@@ -156,7 +181,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	a.Worker = &worker.Handler{Pool: pool, Objects: objects, Memories: a.Memories,
 		Deriver: deriver, Extractor: extractor, Entities: entities, Policies: policies, KB: kbStore}
 	a.Reindexer = &reindex.Reindexer{Pool: pool, Index: a.Index, Memories: a.Memories, Artifacts: artifacts,
-		Collection: collection}
+		Collection: collection, Resolver: embResolver, Settings: embStore}
+	a.Deps.Reindexer = a.Reindexer
 	return a, nil
 }
 
@@ -171,4 +197,28 @@ func (a *App) Close() {
 	if a.Pool != nil {
 		a.Pool.Close()
 	}
+}
+
+func resolveDownloadsDir() string {
+	var candidates []string
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(wd, "web", "public", "downloads"))
+	}
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(dir, "downloads"),
+			filepath.Join(dir, "..", "web", "public", "downloads"),
+		)
+	}
+	for _, c := range candidates {
+		if st, err := os.Stat(c); err == nil && st.IsDir() {
+			abs, err := filepath.Abs(c)
+			if err == nil {
+				return abs
+			}
+			return c
+		}
+	}
+	return ""
 }

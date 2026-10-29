@@ -17,9 +17,18 @@ import (
 )
 
 const (
-	EnvAPIURL = "SHARED_MEMORY_API_URL"
-	EnvAPIKey = "SHARED_MEMORY_API_KEY"
+	EnvAPIURL        = "SHARED_MEMORY_API_URL"
+	EnvAPIKey        = "SHARED_MEMORY_API_KEY"
+	EnvConnectionID  = "SHARED_MEMORY_CONNECTION_ID"
 )
+
+func mergeConnectionID(connectionID string) string {
+	connectionID = strings.TrimSpace(connectionID)
+	if connectionID != "" {
+		return connectionID
+	}
+	return strings.TrimSpace(os.Getenv(EnvConnectionID))
+}
 
 // Client talks to the Shared Memory REST API with Bearer auth.
 type Client struct {
@@ -129,6 +138,9 @@ func (c *Client) Ingest(ctx context.Context, req IngestRequest) (IngestResult, e
 	if req.Tools == nil {
 		req.Tools = []string{}
 	}
+	if cid := mergeConnectionID(req.ConnectionID); cid != "" {
+		req.ConnectionID = cid
+	}
 	var out IngestResult
 	err := c.do(ctx, http.MethodPost, "/v1/ingest", req, &out)
 	return out, err
@@ -136,6 +148,9 @@ func (c *Client) Ingest(ctx context.Context, req IngestRequest) (IngestResult, e
 
 // Recall retrieves injectable memory for a query.
 func (c *Client) Recall(ctx context.Context, req RecallRequest) (RecallResult, error) {
+	if cid := mergeConnectionID(req.ConnectionID); cid != "" {
+		req.ConnectionID = cid
+	}
 	var out RecallResult
 	err := c.do(ctx, http.MethodPost, "/v1/recall", req, &out)
 	return out, err

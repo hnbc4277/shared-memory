@@ -11,6 +11,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
 
+	"sharedmemory/internal/agents"
 	"sharedmemory/internal/auth"
 	"sharedmemory/internal/recall"
 	"sharedmemory/internal/session"
@@ -19,18 +20,20 @@ import (
 const wsIdleTimeout = 5 * time.Minute
 
 // handleWS upgrades to a JSON WebSocket for live ingest/recall (design §接入面).
-// Auth: Authorization Bearer, or ?access_token=, or first message {"type":"auth","token":"..."}.
+// Auth: Bearer API Key, web session (Cookie sm_session / wss_), ?access_token=, or first message {"type":"auth","token":"..."}.
 func (r *Router) handleWS(w http.ResponseWriter, req *http.Request) {
 	token := wsToken(req)
 	var accountID uuid.UUID
+	var apiKeyID *uuid.UUID
 	needAuthMsg := token == ""
 	if token != "" {
-		id, err := r.Auth.AuthenticateAPIKey(req.Context(), token)
-		if err != nil {
+		id, keyID, ok := wsAuthenticate(req.Context(), r.Auth, token)
+		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		accountID = id
+		apiKeyID = keyID
 	}
 
 	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{
@@ -43,7 +46,7 @@ func (r *Router) handleWS(w http.ResponseWriter, req *http.Request) {
 
 	ctx := req.Context()
 	if needAuthMsg {
-		accountID, err = r.wsAuthFirst(ctx, conn)
+		accountID, apiKeyID, err = r.wsAuthFirst(ctx, conn)
 		if err != nil {
 			_ = wsjson.Write(ctx, conn, map[string]any{"type": "error", "error": "unauthorized"})
 			_ = conn.Close(websocket.StatusPolicyViolation, "unauthorized")
@@ -53,8 +56,13 @@ func (r *Router) handleWS(w http.ResponseWriter, req *http.Request) {
 
 	_ = wsjson.Write(ctx, conn, map[string]any{"type": "ready", "account_id": accountID})
 
+	wsCtx := req.Context()
+	if apiKeyID != nil {
+		wsCtx = withAPIKeyID(wsCtx, *apiKeyID)
+	}
+
 	for {
-		ctx, cancel := context.WithTimeout(req.Context(), wsIdleTimeout)
+		ctx, cancel := context.WithTimeout(wsCtx, wsIdleTimeout)
 		var msg map[string]any
 		err := wsjson.Read(ctx, conn, &msg)
 		cancel()
@@ -67,9 +75,9 @@ func (r *Router) handleWS(w http.ResponseWriter, req *http.Request) {
 		case "ping":
 			_ = wsjson.Write(req.Context(), conn, map[string]any{"type": "pong"})
 		case "recall":
-			r.wsRecall(req.Context(), conn, accountID, msg)
+			r.wsRecall(wsCtx, conn, accountID, msg)
 		case "ingest":
-			r.wsIngest(req.Context(), conn, accountID, msg)
+			r.wsIngest(wsCtx, conn, accountID, msg)
 		default:
 			_ = wsjson.Write(req.Context(), conn, map[string]any{"type": "error", "error": "unknown type; use ping|recall|ingest"})
 		}
@@ -77,10 +85,23 @@ func (r *Router) handleWS(w http.ResponseWriter, req *http.Request) {
 }
 
 func wsToken(req *http.Request) string {
-	if h := req.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		return strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+	if t := bearerOrCookieToken(req); t != "" {
+		return t
 	}
 	return strings.TrimSpace(req.URL.Query().Get("access_token"))
+}
+
+func wsAuthenticate(ctx context.Context, store *auth.Store, token string) (uuid.UUID, *uuid.UUID, bool) {
+	authCtx, ok := authenticateRequest(ctx, store, token)
+	if !ok {
+		return uuid.Nil, nil, false
+	}
+	id, _ := AccountIDFromContext(authCtx)
+	var keyID *uuid.UUID
+	if kid, ok := APIKeyIDFromContext(authCtx); ok {
+		keyID = &kid
+	}
+	return id, keyID, true
 }
 
 func (r *Router) wsOrigins() []string {
@@ -98,21 +119,36 @@ func (r *Router) wsOrigins() []string {
 	return out
 }
 
-func (r *Router) wsAuthFirst(ctx context.Context, conn *websocket.Conn) (uuid.UUID, error) {
+func (r *Router) wsAuthFirst(ctx context.Context, conn *websocket.Conn) (uuid.UUID, *uuid.UUID, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	var msg map[string]any
 	if err := wsjson.Read(ctx, conn, &msg); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, nil, err
 	}
 	if strings.ToLower(strAny(msg["type"])) != "auth" {
-		return uuid.Nil, auth.ErrUnauthorized
+		return uuid.Nil, nil, auth.ErrUnauthorized
 	}
 	token := strAny(msg["token"])
 	if token == "" {
 		token = strAny(msg["api_key"])
 	}
-	return r.Auth.AuthenticateAPIKey(ctx, token)
+	accountID, keyID, ok := wsAuthenticate(ctx, r.Auth, token)
+	if !ok {
+		return uuid.Nil, nil, auth.ErrUnauthorized
+	}
+	return accountID, keyID, nil
+}
+
+func (r *Router) wsApplyDedicatedConnection(ctx context.Context, accountID uuid.UUID, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw != "" {
+		return raw
+	}
+	if def := r.defaultConnectionID(ctx, accountID); def != nil {
+		return def.String()
+	}
+	return ""
 }
 
 func strAny(v any) string {
@@ -138,11 +174,27 @@ func (r *Router) wsRecall(ctx context.Context, conn *websocket.Conn, accountID u
 	if n, ok := msg["top_k"].(float64); ok && int(n) > 0 {
 		reqBody.TopK = int(n)
 	}
+	cid := r.wsApplyDedicatedConnection(ctx, accountID, strAny(msg["connection_id"]))
+	if cid != "" {
+		if _, err := agents.ParseConnectionID(cid); err != nil {
+			_ = wsjson.Write(ctx, conn, map[string]any{"type": "error", "error": "invalid connection_id"})
+			return
+		}
+		if r.Agents != nil {
+			id, _ := agents.ParseConnectionID(cid)
+			if err := r.Agents.ValidateConnection(ctx, accountID, id); err != nil {
+				_ = wsjson.Write(ctx, conn, map[string]any{"type": "error", "error": "unknown connection_id"})
+				return
+			}
+		}
+		reqBody.ConnectionID = cid
+	}
 	res, err := r.Recall.Recall(ctx, accountID, reqBody)
 	if err != nil {
 		_ = wsjson.Write(ctx, conn, map[string]any{"type": "error", "error": err.Error()})
 		return
 	}
+	r.recordRecallAgentsCtx(ctx, accountID, reqBody)
 	_ = wsjson.Write(ctx, conn, map[string]any{"type": "recall", "ok": true, "data": res})
 }
 
@@ -157,10 +209,25 @@ func (r *Router) wsIngest(ctx context.Context, conn *websocket.Conn, accountID u
 		_ = wsjson.Write(ctx, conn, map[string]any{"type": "error", "error": "invalid ingest payload"})
 		return
 	}
+	body.ConnectionID = r.wsApplyDedicatedConnection(ctx, accountID, body.ConnectionID)
+	if body.ConnectionID != "" {
+		if _, err := agents.ParseConnectionID(body.ConnectionID); err != nil {
+			_ = wsjson.Write(ctx, conn, map[string]any{"type": "error", "error": "invalid connection_id"})
+			return
+		}
+		if r.Agents != nil {
+			id, _ := agents.ParseConnectionID(body.ConnectionID)
+			if err := r.Agents.ValidateConnection(ctx, accountID, id); err != nil {
+				_ = wsjson.Write(ctx, conn, map[string]any{"type": "error", "error": "unknown connection_id"})
+				return
+			}
+		}
+	}
 	res, err := r.Sessions.Ingest(ctx, accountID, body)
 	if err != nil {
 		_ = wsjson.Write(ctx, conn, map[string]any{"type": "error", "error": err.Error()})
 		return
 	}
+	r.recordIngestAgentsCtx(ctx, accountID, body)
 	_ = wsjson.Write(ctx, conn, map[string]any{"type": "ingest", "ok": true, "data": res})
 }

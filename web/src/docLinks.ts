@@ -13,5 +13,6 @@ export const DOC_LINKS = {
   hermes: repoPath("adapters/hermes/README.md"),
   openclaw: repoPath("adapters/openclaw/README.md"),
   deepseek: repoPath("adapters/deepseek-harness/README.md"),
+  doubao: repoPath("adapters/doubao/README.md"),
   agentsSpec: repoPath("docs/superpowers/specs/2026-10-12-agent-connections-design.md"),
 } as const;

@@ -19,15 +19,19 @@ npm run dev        # http://127.0.0.1:15173
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `VITE_API_BASE` | `http://127.0.0.1:18080` | API 地址；API 侧需在 `CORS_ORIGINS` 中放行控制台来源 |
+| `VITE_REPO_DOCS_BASE` | （空） | 可选：GitHub blob 根路径，智能体 Tab 文档链指向仓库；未设时使用 `web/public/` 下静态副本 |
+
+发布前同步静态文档：`npm run sync-docs`（等价于仓库根目录 `scripts/sync-web-docs.ps1`，从 `[internal-notes] 等拷贝到 `web/public`），再 `npm run build`。CI 会执行根目录 `node scripts/check-web-docs-sync.mjs` 校验 `web/public` 未过期。仓库文档划分见 `docs/README.md`。
 
 其他命令：`npm test`（vitest 单测）、`npm run build`（类型检查 + 产物输出到 `dist/`）。
 
 ## 登录
 
-- **注册账号**：邮箱 + 密码（≥8 位），成功后签发一把 API Key（只显示一次），确认保存后进入控制台。
-- **使用 API Key**：直接粘贴 `sm_...`，经 `/v1/me` 校验后进入。
+- **邮箱登录（推荐）**：邮箱 + 密码 → API 设置 HttpOnly `sm_session`（`wss_...`），控制台以 Cookie 模式调用 API（`credentials: include`）。**API 的 `CORS_ORIGINS` 必须包含控制台来源**，且不能为 `*`。
+- **注册账号**：仍会签发一把 **API Key**（只显示一次），供 MCP/适配器使用；浏览器会话不依赖该 Key。
+- **仅 API Key**：粘贴 `sm_...`，保存在 `localStorage`（`sm.apiKey`），适合无 Cookie 场景。
 
-Key 保存在浏览器 `localStorage`（`sm.apiKey`），点击「退出登录」即清除。
+点击「退出登录」会吊销 web session 并清除本地 Key。
 
 ## 手动验收清单
 

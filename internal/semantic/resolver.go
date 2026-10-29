@@ -82,21 +82,23 @@ func (r *Resolver) ForAccount(ctx context.Context, accountID uuid.UUID) (Resolve
 			return Resolved{}, err
 		}
 		return Resolved{
-			Source:     "deployment",
-			Embedder:   emb,
-			Protocol:   r.DeployProtocol,
-			Model:      r.DeployModel,
-			Dim:        dim,
-			BaseURL:    r.DeployURL,
-			Collection: CollectionName(accountID, r.DeployModel, dim),
+			Source:          "deployment",
+			Embedder:        emb,
+			Protocol:        r.DeployProtocol,
+			Model:           r.DeployModel,
+			Dim:             dim,
+			BaseURL:         r.DeployURL,
+			Collection:      CollectionName(accountID, r.DeployModel, dim),
+			ReindexRequired: st.ReindexRequired,
 		}, nil
 	}
 
 	return Resolved{
-		Source:   "hash",
-		Embedder: HashEmbedder{},
-		Protocol: "hash",
-		Dim:      HashDim,
+		Source:          "hash",
+		Embedder:        HashEmbedder{},
+		Protocol:        "hash",
+		Dim:             HashDim,
+		ReindexRequired: st.ReindexRequired,
 	}, nil
 }
 

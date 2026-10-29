@@ -142,6 +142,95 @@ Require-True ($r1.Status -eq 201) "会话：ingest（子智能体 provenance）"
 $sessions = (Invoke-Sm GET "/v1/sessions?agent_path=xiaolongxia" $null $A).Json
 Require-True (@($sessions).Count -eq 1) "会话：按 agent_path 筛选列表" "count=1"
 
+# --- 智能体连接 ---
+$agents1 = (Invoke-Sm GET "/v1/agents" $null $A).Json
+$xlGroup = @($agents1.groups | Where-Object { $_.agent -eq "xiaolongxia" })[0]
+Require-True ($null -ne $xlGroup -and $xlGroup.instance_count -ge 1) "智能体：ingest 后出现自动连接" "agent=xiaolongxia"
+$autoInst = @($xlGroup.instances | Where-Object { $_.kind -eq "auto" })[0]
+Require-True ($null -ne $autoInst) "智能体：自动行 kind=auto" ""
+$connReg = (Invoke-Sm POST "/v1/agents/connections" @{ agent = "xiaolongxia"; label = "Smoke PC"; issue_dedicated_key = $false } $A).Json
+Require-True ($null -ne $connReg.connection_id) "智能体：注册连接" ""
+$regId = "$($connReg.connection_id)"
+$ingConn = New-Message $project "user" "connection_id 绑定探测 $marker"
+$ingConn.connection_id = $regId
+$rConn = Invoke-Sm POST "/v1/ingest" $ingConn $A
+Require-True ($rConn.Status -eq 201) "智能体：带 connection_id ingest" "id=$regId"
+$agents2 = (Invoke-Sm GET "/v1/agents" $null $A).Json
+$xlGroup2 = @($agents2.groups | Where-Object { $_.agent -eq "xiaolongxia" })[0]
+$regInst = @($xlGroup2.instances | Where-Object { $_.id -eq $regId })[0]
+Require-True ($null -ne $regInst -and $regInst.kind -eq "registered") "智能体：注册实例出现在列表" ""
+Require-True ($null -ne $regInst.last_ingest_at) "智能体：注册实例记录 last_ingest_at" ""
+$connDed = (Invoke-Sm POST "/v1/agents/connections" @{ agent = "xiaolongxia"; label = "Smoke dedicated"; issue_dedicated_key = $true } $A).Json
+Require-True ($null -ne $connDed.api_key -and $connDed.connection_id) "智能体：专用 Key 连接" ""
+$dedId = "$($connDed.connection_id)"
+$ingDed = New-Message $project "user" "dedicated key auto bind $marker"
+$rDed = Invoke-Sm POST "/v1/ingest" $ingDed "$($connDed.api_key)"
+Require-True ($rDed.Status -eq 201) "智能体：专用 Key 自动 connection_id ingest" ""
+$sessDed = (Invoke-Sm GET "/v1/sessions?connection_id=$dedId" $null $A).Json
+Require-True (@($sessDed).Count -ge 1) "智能体：专用 Key 会话归属 connection" "count=$(@($sessDed).Count)"
+$claim = Invoke-Sm POST "/v1/agents/connections/$regId/claim-history" @{} $A
+Require-True ($claim.Status -eq 200 -and $claim.Json.sessions_claimed -ge 1) "智能体：claim-history 认领会话" "claimed=$($claim.Json.sessions_claimed)"
+$sessConn = (Invoke-Sm GET "/v1/sessions?connection_id=$regId" $null $A).Json
+Require-True (@($sessConn).Count -ge 1) "智能体：GET sessions 按 connection_id 筛选" "count=$(@($sessConn).Count)"
+$badConn = Invoke-Sm POST "/v1/ingest" @{
+    agent = "xiaolongxia"; agent_path = "xiaolongxia"; role = "user"; content = "bad"
+    connection_id = [guid]::NewGuid().ToString()
+    skills = @(); plugins = @(); tools = @()
+} $A
+Require-True ($badConn.Status -eq 400) "智能体：非法 connection_id 拒绝" "HTTP $($badConn.Status)"
+$up = Invoke-Sm POST "/v1/agents/connections/$($autoInst.id)/upgrade" @{ label = "Smoke upgraded"; issue_dedicated_key = $false } $A
+Require-True ($up.Status -eq 200 -and $null -ne $up.Json.connection_id) "智能体：auto 升级为 registered" ""
+$agentsB = (Invoke-Sm GET "/v1/agents" $null $B).Json
+Require-True (@($agentsB.groups).Count -eq 0) "智能体：跨账号列表隔离（B 无 A 分组）" ""
+
+# --- Recall：connection 命中隔离（专用 Key 自动带 connection） ---
+$isoA = "recall-iso-A-$marker"
+$isoB = "recall-iso-B-$marker"
+$ingIsoA = New-Message $project "user" $isoA
+$rIsoA = Invoke-Sm POST "/v1/ingest" $ingIsoA "$($connDed.api_key)"
+Require-True ($rIsoA.Status -eq 201) "Recall 隔离：connection A ingest" ""
+$connIsoB = (Invoke-Sm POST "/v1/agents/connections" @{ agent = "xiaolongxia"; label = "Smoke iso B"; issue_dedicated_key = $true } $A).Json
+$ingIsoB = New-Message $project "user" $isoB
+$rIsoB = Invoke-Sm POST "/v1/ingest" $ingIsoB "$($connIsoB.api_key)"
+Require-True ($rIsoB.Status -eq 201) "Recall 隔离：connection B ingest" ""
+$leaked = $true
+$deadline = (Get-Date).AddSeconds($WorkerWaitSeconds)
+while ((Get-Date) -lt $deadline) {
+    $recIso = (Invoke-Sm POST "/v1/recall" @{ query = $isoB; top_k = 10 } "$($connDed.api_key)").Json
+    $leaked = $false
+    foreach ($h in @($recIso.hits)) {
+        if ("$($h.body)" -like "*$isoB*") { $leaked = $true; break }
+    }
+    if (-not $leaked) { break }
+    Start-Sleep -Seconds 2
+}
+Require-True (-not $leaked) "Recall 隔离：A 的 Key 召回不应命中 B 专属内容" "query=$isoB waited<=${WorkerWaitSeconds}s"
+
+# --- 设备码 + heartbeat → device_linked 在线 ---
+$devCode = (Invoke-Sm POST "/v1/device/code" @{ client_name = "smoke-daemon"; agent = "cursor" } "").Json
+Require-True ($null -ne $devCode.user_code) "智能体：device/code" ""
+$apDev = Invoke-Sm POST "/v1/device/approve" @{ user_code = $devCode.user_code } $A
+Require-True ($apDev.Status -eq 204) "智能体：device/approve" ""
+$devKey = $null
+for ($i = 0; $i -lt 30; $i++) {
+    $tokResp = Invoke-Sm POST "/v1/device/token" @{ device_code = $devCode.device_code } ""
+    if ($tokResp.Status -eq 200 -and $null -ne $tokResp.Json.api_key) {
+        $devKey = "$($tokResp.Json.api_key)"
+        break
+    }
+    Start-Sleep -Seconds 1
+}
+Require-True ($null -ne $devKey) "智能体：device/token 换取设备 Key" ""
+$hb = Invoke-Sm POST "/v1/devices/heartbeat" @{ daemon_version = "smoke"; spool_pending = 1 } $devKey
+Require-True ($hb.Status -eq 204) "智能体：devices/heartbeat" ""
+$agentsDev = (Invoke-Sm GET "/v1/agents" $null $A).Json
+$cursorDev = @($agentsDev.groups | Where-Object { $_.agent -eq "cursor" })[0]
+$linked = $null
+if ($null -ne $cursorDev) {
+    $linked = @($cursorDev.instances | Where-Object { $_.kind -eq "device_linked" })[0]
+}
+Require-True ($null -ne $linked -and $linked.online -eq $true) "智能体：device_linked 在线" "daemon_version=$($linked.daemon_version)"
+
 # --- 记忆 recall ---
 $hit = $false
 for ($i = 0; $i -lt $WorkerWaitSeconds; $i++) {

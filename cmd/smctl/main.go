@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 
 	"sharedmemory/internal/smctl"
@@ -83,6 +84,17 @@ func main() {
 				fail(err)
 			}
 			fmt.Printf("installed DeepSeek Harness kit → %s (see INSTALL.txt)\n", dst)
+		case "doubao":
+			dst, err := smctl.InstallDoubao()
+			if err != nil {
+				fail(err)
+			}
+			fmt.Printf("installed Doubao kit → %s (see INSTALL.txt)\n", dst)
+			if b, err := os.ReadFile(filepath.Join(dst, "SKILL_INSTALLED.txt")); err == nil {
+				fmt.Printf("Doubao Skill auto-installed → %s", string(b))
+			} else {
+				fmt.Println("note: Doubao Skill was not auto-copied (see INSTALL.txt); MCP connector still needs UI setup")
+			}
 		default:
 			usage()
 			os.Exit(2)
@@ -118,13 +130,14 @@ Usage:
   smctl install hermes
   smctl install openclaw|xiaolongxia
   smctl install deepseek-harness|deepseek
+  smctl install doubao
   smctl status
   smctl logout [--revoke]
 
 Injection model (A+B):
   Codex / DeepSeek-Harness — automatic additionalContext
   Hermes / OpenClaw       — automatic prefetch/prependContext
-  Cursor                  — MCP memory_recall + rules; check Recall Receipts
+  Cursor / Doubao         — MCP memory_recall + rules/Skill; check Recall Receipts
 `)
 }
 

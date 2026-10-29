@@ -1,4 +1,14 @@
-import { useEffect, useId, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
+
+function textFromNode(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textFromNode).join("");
+  if (typeof node === "object" && "props" in node) {
+    return textFromNode((node as { props?: { children?: ReactNode } }).props?.children);
+  }
+  return "";
+}
 
 export function Chip({ children, tone = "neutral", title }: { children: ReactNode; tone?: "neutral" | "agent" | "skill" | "plugin" | "tool" | "warn"; title?: string }) {
   return (
@@ -166,10 +176,39 @@ export function ConfirmModal({
   );
 }
 
-export function CodeBlock({ label, children }: { label: string; children: ReactNode }) {
+export function CodeBlock({
+  label,
+  children,
+  copyText,
+}: {
+  label: string;
+  children: ReactNode;
+  copyText?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const text = (copyText ?? textFromNode(children)).trim();
+
+  async function copy() {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
     <div className="code-block">
-      <span className="code-block-label">{label}</span>
+      <div className="code-block-head">
+        <span className="code-block-label">{label}</span>
+        {text ? (
+          <button type="button" className="link code-block-copy" onClick={() => void copy()}>
+            {copied ? "已复制" : "复制"}
+          </button>
+        ) : null}
+      </div>
       {children}
     </div>
   );

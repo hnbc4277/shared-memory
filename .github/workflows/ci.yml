@@ -1,0 +1,63 @@
+name: ci
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go test ./...
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: node scripts/check-web-docs-sync.mjs
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+
+  go-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sm
+          POSTGRES_PASSWORD: sm
+          POSTGRES_DB: sharedmemory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sm -d sharedmemory"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_DSN: postgres://sm:sm@localhost:5432/sharedmemory?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go test -tags=integration -count=1 ./internal/agents/ ./internal/recall/ ./internal/session/ ./internal/httpapi/ ./internal/db/
+
+  smoke-compose:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose --profile app up -d --build --wait
+      - run: bash scripts/e2e-smoke.sh
+        env:
+          API: http://127.0.0.1:18080

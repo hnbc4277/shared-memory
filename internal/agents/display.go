@@ -16,6 +16,8 @@ func DisplayName(agent string) string {
 		return "DeepSeek Harness"
 	case "openclaw":
 		return "OpenClaw"
+	case "doubao":
+		return "豆包"
 	default:
 		if agent == "" {
 			return "未知"

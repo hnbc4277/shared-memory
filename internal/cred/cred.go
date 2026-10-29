@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
 	EnvHome   = "SHARED_MEMORY_HOME"
-	EnvAPIURL = "SHARED_MEMORY_API_URL"
-	EnvAPIKey = "SHARED_MEMORY_API_KEY"
+	EnvAPIURL         = "SHARED_MEMORY_API_URL"
+	EnvAPIKey         = "SHARED_MEMORY_API_KEY"
+	EnvConnectionID   = "SHARED_MEMORY_CONNECTION_ID"
 
 	DefaultAPIURL = "http://127.0.0.1:18080"
 	fileName      = "credentials.json"
@@ -24,7 +26,8 @@ var ErrNotFound = errors.New("credentials not found")
 type Credentials struct {
 	APIKey   string `json:"api_key"`
 	APIURL   string `json:"api_url"`
-	DeviceID string `json:"device_id"`
+	DeviceID     string `json:"device_id,omitempty"`
+	ConnectionID string `json:"connection_id,omitempty"`
 }
 
 func IsNotFound(err error) bool {
@@ -125,6 +128,9 @@ func Resolve() (Credentials, error) {
 	}
 	if v := os.Getenv(EnvAPIKey); v != "" {
 		c.APIKey = v
+	}
+	if v := os.Getenv(EnvConnectionID); v != "" {
+		c.ConnectionID = strings.TrimSpace(v)
 	}
 	if c.APIURL == "" {
 		c.APIURL = DefaultAPIURL

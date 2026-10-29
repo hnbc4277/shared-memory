@@ -129,7 +129,7 @@ export default function SettingsPage() {
         <ul className="muted small">
           <li>设备码登录：本机运行 <code>smctl login</code>，在「密钥 → 授权设备」确认用户码</li>
           <li>本地守护进程：<code>shared-memory-daemon</code> 负责离线缓冲与自动上报</li>
-          <li>官方适配器：<code>smctl install cursor|codex|hermes|openclaw|deepseek-harness</code>（详见 <code>adapters/*/README.md</code>）</li>
+          <li>官方适配器：<code>smctl install cursor|codex|hermes|openclaw|deepseek-harness|doubao</code>（详见 <code>adapters/*/README.md</code>）</li>
         </ul>
       </Section>
 

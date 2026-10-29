@@ -7,8 +7,12 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+
+	"github.com/google/uuid"
 
 	"sharedmemory/internal/attachment"
+	"sharedmemory/internal/entity"
 	"sharedmemory/internal/quarantine"
 	"sharedmemory/internal/session"
 )
@@ -30,11 +34,15 @@ func (r *Router) handleLogin(w http.ResponseWriter, req *http.Request) {
 	if !decode(w, req, &body) {
 		return
 	}
+	if !AuthEmailRateLimit(r.RateLimit, w, req.Context(), body.Email) {
+		return
+	}
 	sess, err := r.Auth.LoginWithPassword(req.Context(), body.Email, body.Password)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
 		return
 	}
+	setWebSessionCookie(w, req, sess.Token, sess.ExpiresAt)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token":      sess.Token,
 		"expires_at": sess.ExpiresAt,
@@ -43,12 +51,11 @@ func (r *Router) handleLogin(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) handleLogout(w http.ResponseWriter, req *http.Request) {
-	h := req.Header.Get("Authorization")
-	token := ""
-	if len(h) > 7 {
-		token = h[7:]
+	token := bearerOrCookieToken(req)
+	if token != "" && strings.HasPrefix(token, "wss_") {
+		_ = r.Auth.RevokeWebSession(req.Context(), token)
 	}
-	_ = r.Auth.RevokeWebSession(req.Context(), token)
+	clearWebSessionCookie(w, req)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -149,6 +156,86 @@ func (r *Router) handleListEntities(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (r *Router) handleCreateEntity(w http.ResponseWriter, req *http.Request) {
+	if r.Entities == nil {
+		writeError(w, http.StatusServiceUnavailable, "entities unavailable")
+		return
+	}
+	var body struct {
+		Canonical string     `json:"canonical"`
+		Alias     string     `json:"alias"`
+		ProjectID *uuid.UUID `json:"project_id"`
+	}
+	if !decode(w, req, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Canonical) == "" || strings.TrimSpace(body.Alias) == "" {
+		writeError(w, http.StatusBadRequest, "canonical and alias are required")
+		return
+	}
+	accountID := accountOf(req)
+	if err := r.Entities.Upsert(req.Context(), accountID, body.ProjectID, body.Canonical, body.Alias, nil); err != nil {
+		fail(w, err)
+		return
+	}
+	list, err := r.Entities.List(req.Context(), accountID, body.ProjectID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	var created entity.Alias
+	for _, a := range list {
+		if a.Alias == strings.TrimSpace(body.Alias) && a.Canonical == strings.TrimSpace(body.Canonical) {
+			created = a
+			break
+		}
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (r *Router) handleDeleteEntity(w http.ResponseWriter, req *http.Request) {
+	if r.Entities == nil {
+		writeError(w, http.StatusServiceUnavailable, "entities unavailable")
+		return
+	}
+	id, ok := pathID(w, req)
+	if !ok {
+		return
+	}
+	if err := r.Entities.Delete(req.Context(), accountOf(req), id); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (r *Router) handlePatchEntity(w http.ResponseWriter, req *http.Request) {
+	if r.Entities == nil {
+		writeError(w, http.StatusServiceUnavailable, "entities unavailable")
+		return
+	}
+	id, ok := pathID(w, req)
+	if !ok {
+		return
+	}
+	var body struct {
+		Canonical string `json:"canonical"`
+		Alias     string `json:"alias"`
+	}
+	if !decode(w, req, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Canonical) == "" || strings.TrimSpace(body.Alias) == "" {
+		writeError(w, http.StatusBadRequest, "canonical and alias are required")
+		return
+	}
+	if err := r.Entities.Update(req.Context(), accountOf(req), id, body.Canonical, body.Alias); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (r *Router) handleProvenanceStats(w http.ResponseWriter, req *http.Request) {

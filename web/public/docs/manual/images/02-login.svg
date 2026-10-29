@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 480" font-family="Arial,sans-serif" font-size="13">
+  <rect width="920" height="480" fill="#eef1f5"/>
+  <rect x="500" y="80" width="380" height="320" rx="12" fill="#fff" stroke="#dde3ea"/>
+  <rect x="528" y="140" width="110" height="32" rx="6" fill="#1976d2"/>
+  <text x="545" y="161" fill="#fff" font-size="12">API Key</text>
+  <rect x="528" y="268" width="324" height="40" rx="8" fill="#1976d2"/>
+  <text x="640" y="293" fill="#fff" text-anchor="middle">Enter</text>
+</svg>

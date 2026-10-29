@@ -17,17 +17,24 @@ func (r *Router) handleRecall(w http.ResponseWriter, req *http.Request) {
 	if body.Source == "" {
 		body.Source = "http"
 	}
+	accountID := accountOf(req)
 	if body.ProjectID != nil {
-		if _, err := r.Projects.Get(req.Context(), accountOf(req), *body.ProjectID); err != nil {
+		if _, err := r.Projects.Get(req.Context(), accountID, *body.ProjectID); err != nil {
 			fail(w, err)
 			return
 		}
 	}
-	res, err := r.Recall.Recall(req.Context(), accountOf(req), body)
+	resolved, ok := r.resolveConnectionID(w, req, accountID, body.ConnectionID)
+	if !ok {
+		return
+	}
+	body.ConnectionID = resolved
+	res, err := r.Recall.Recall(req.Context(), accountID, body)
 	if err != nil {
 		fail(w, err)
 		return
 	}
+	r.recordRecallAgents(req, accountID, body)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -37,10 +44,15 @@ func (r *Router) handleListRecallReceipts(w http.ResponseWriter, req *http.Reque
 	if !ok {
 		return
 	}
+	connectionID, ok := optionalUUID(w, q.Get("connection_id"), "connection_id")
+	if !ok {
+		return
+	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	list, err := r.Recall.ListReceipts(req.Context(), accountOf(req), recall.ReceiptFilter{
 		SessionID:         sessionID,
 		ExternalSessionID: q.Get("external_session_id"),
+		ConnectionID:      connectionID,
 		Limit:             limit,
 	})
 	if err != nil {

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 460" font-family="Arial,sans-serif" font-size="12">
+  <rect width="920" height="460" fill="#f4f6f8"/>
+  <rect x="20" y="16" width="880" height="44" rx="6" fill="#fff" stroke="#dde3ea"/>
+  <text x="36" y="44" fill="#555">Online 2 / Total 5  [+ Register connection]</text>
+  <rect x="20" y="72" width="880" height="120" rx="8" fill="#fff" stroke="#dde3ea"/>
+  <circle cx="52" cy="118" r="5" fill="#4caf50"/>
+  <text x="64" y="122" fill="#333">Registered - Office Mac - online</text>
+  <circle cx="52" cy="162" r="5" fill="#bbb"/>
+  <text x="64" y="166" fill="#666">Auto (API Key) - offline</text>
+  <text x="20" y="450" fill="#999" font-size="11">Fig.4 Agents</text>
+</svg>

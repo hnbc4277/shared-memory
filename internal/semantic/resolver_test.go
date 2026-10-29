@@ -124,6 +124,56 @@ func TestResolverForAccount_AccountOpenAI(t *testing.T) {
 	}
 }
 
+func TestResolverForAccount_ReindexRequiredWhenOverrideDisabled(t *testing.T) {
+	accountID := uuid.MustParse("55555555-5555-4555-8555-555555555555")
+	r := &semantic.Resolver{
+		Settings: &fakeAccountSettings{
+			settings: semantic.Settings{
+				Enabled:         false,
+				ReindexRequired: true,
+			},
+		},
+		DeployProtocol: "tei",
+		DeployURL:      "http://embed:8080",
+		DeployModel:    "bge-small-zh-v1.5",
+		DeployDim:      512,
+	}
+
+	got, err := r.ForAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "deployment" {
+		t.Fatalf("source=%q want deployment", got.Source)
+	}
+	if !got.ReindexRequired {
+		t.Fatal("reindex should stay true when override disabled")
+	}
+}
+
+func TestResolverForAccount_ReindexRequiredHashWhenOverrideDisabled(t *testing.T) {
+	accountID := uuid.MustParse("66666666-6666-4666-8666-666666666666")
+	r := &semantic.Resolver{
+		Settings: &fakeAccountSettings{
+			settings: semantic.Settings{
+				Enabled:         false,
+				ReindexRequired: true,
+			},
+		},
+	}
+
+	got, err := r.ForAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "hash" {
+		t.Fatalf("source=%q want hash", got.Source)
+	}
+	if !got.ReindexRequired {
+		t.Fatal("reindex should stay true on hash fallback")
+	}
+}
+
 func TestResolverForAccount_AccountOpenAIReindexRequired(t *testing.T) {
 	accountID := uuid.MustParse("44444444-4444-4444-8444-444444444444")
 	r := &semantic.Resolver{

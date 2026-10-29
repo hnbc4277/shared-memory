@@ -2,10 +2,18 @@ package entity
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var (
+	ErrNotFound  = errors.New("entity alias not found")
+	ErrConflict  = errors.New("entity alias already exists for this project")
 )
 
 // Store maps entity aliases to a canonical name (design §层2 Entity).
@@ -97,6 +105,39 @@ func (s *Store) List(ctx context.Context, accountID uuid.UUID, projectID *uuid.U
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) Update(ctx context.Context, accountID, id uuid.UUID, canonical, alias string) error {
+	canonical = strings.TrimSpace(canonical)
+	alias = strings.TrimSpace(alias)
+	if canonical == "" || alias == "" {
+		return fmt.Errorf("canonical and alias are required")
+	}
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE entity_aliases SET canonical = $3, alias = $4
+		WHERE account_id = $1 AND id = $2`, accountID, id, canonical, alias)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrConflict
+		}
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) Delete(ctx context.Context, accountID, id uuid.UUID) error {
+	tag, err := s.Pool.Exec(ctx, `DELETE FROM entity_aliases WHERE account_id = $1 AND id = $2`, accountID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) Resolve(ctx context.Context, accountID uuid.UUID, projectID *uuid.UUID, name string) (string, error) {

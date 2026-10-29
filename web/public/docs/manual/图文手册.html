@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>共享记忆 · 图文手册（v0.1.0）</title>
+  <style>
+    :root {
+      --bg: #f4f6f8; --card: #fff; --text: #1a1a1a; --muted: #5c6570;
+      --accent: #0066cc; --line: #dde3ea; --ok: #1a7f37; --warn: #9a6700;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      line-height: 1.65; color: var(--text); background: var(--bg);
+      margin: 0; padding: 28px 20px 64px; max-width: 920px; margin-inline: auto;
+    }
+    h1 { font-size: 1.7rem; letter-spacing: -0.02em; margin: 0 0 0.5rem; }
+    h2 {
+      margin: 2.4rem 0 0.75rem; font-size: 1.25rem;
+      border-bottom: 1px solid var(--line); padding-bottom: 0.4rem;
+    }
+    h3 { margin: 1.35rem 0 0.5rem; font-size: 1.05rem; }
+    p { margin: 0.55rem 0; }
+    .lede { color: var(--muted); margin-bottom: 1.25rem; }
+    .note {
+      background: #e8f1fb; border-left: 4px solid var(--accent);
+      padding: 12px 14px; margin: 14px 0; font-size: 0.94rem;
+    }
+    .warn {
+      background: #fff8e8; border-left: 4px solid var(--warn);
+      padding: 12px 14px; margin: 14px 0; font-size: 0.94rem;
+    }
+    .ok {
+      background: #eaf7ee; border-left: 4px solid var(--ok);
+      padding: 12px 14px; margin: 14px 0; font-size: 0.94rem;
+    }
+    nav.toc {
+      background: var(--card); padding: 16px 18px; border-radius: 10px;
+      border: 1px solid var(--line);
+    }
+    nav.toc a { color: var(--accent); text-decoration: none; }
+    nav.toc a:hover { text-decoration: underline; }
+    nav.toc ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+    nav.toc li { margin: 0.25rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 0.92rem; }
+    th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #eef2f6; }
+    ol.steps, ul.plain { margin: 0.4rem 0 1rem; padding-left: 1.25rem; }
+    ol.steps li, ul.plain li { margin: 0.35rem 0; }
+    code, kbd {
+      font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+      font-size: 0.88em; background: #eef1f4; padding: 1px 5px; border-radius: 3px;
+    }
+    pre.wire {
+      background: #1b2230; color: #e7ecf2; padding: 14px 16px; border-radius: 8px;
+      overflow-x: auto; font-size: 12px; line-height: 1.45; margin: 10px 0 16px;
+      font-family: ui-monospace, Consolas, monospace;
+    }
+    figure {
+      margin: 16px 0; background: var(--card); border: 1px solid var(--line);
+      border-radius: 10px; padding: 12px 14px;
+    }
+    figure img { max-width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid var(--line); }
+    figcaption { margin-top: 10px; font-size: 0.88rem; color: var(--muted); }
+    .tag {
+      display: inline-block; font-size: 0.75rem; font-weight: 600;
+      padding: 1px 7px; border-radius: 3px; margin-right: 4px;
+      background: #e8f1fb; color: var(--accent);
+    }
+    .tag.muted { background: #eee; color: var(--muted); }
+    footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>共享记忆 · 图文手册</h1>
+  <p class="lede">
+    产品版本 <strong>v0.1.0</strong> · 自托管控制台操作说明（对齐当前 Web UI）。
+    请用<strong>浏览器</strong>打开本页。运维细节见 <code>OPERATIONS-MANUAL.md</code>；
+    部署与 <code>PUBLIC_API_URL</code> 见 <code>../deploy/DEPLOYMENT-GUIDE.md</code>。
+  </p>
+
+  <div class="ok">
+    <strong>v0.1.0 已联调客户端：</strong>
+    Cursor <strong>Windows 3.27.14</strong>（Hook + MCP）；
+    豆包 <strong>Windows 桌面 2.29.10</strong>（工作 / Agent · MCP + Skill）。
+    豆包<strong>手机版不支持</strong>。其它适配器仅为材料草稿，本版本不承诺验收。
+  </div>
+
+  <div class="note">
+    配图优先使用 <code>images/*.png</code>（Playwright 实机截图）；若尚未生成则回退到同名 <code>.svg</code>。
+    刷新截图：API <code>healthz</code> 正常后，在仓库根执行
+    <code>powershell -File scripts/capture-manual-screenshots.ps1</code>。
+  </div>
+
+  <nav class="toc">
+    <strong>目录</strong>
+    <ol>
+      <li><a href="#s0">壳层与导航</a></li>
+      <li><a href="#s1">登录 / 注册</a></li>
+      <li><a href="#s2">总览</a></li>
+      <li><a href="#s3">智能体（重点）</a></li>
+      <li><a href="#s4">历史会话</a></li>
+      <li><a href="#s5">记忆 · 资产 · 管理</a></li>
+      <li><a href="#s6">接 Cursor / 豆包</a></li>
+      <li><a href="#s7">PUBLIC_API_URL</a></li>
+    </ol>
+  </nav>
+
+  <h2 id="s0">0. 壳层与导航</h2>
+  <p>登录后左侧分组导航、顶栏面包屑 / 项目筛选 / 退出；业务页标题下有「连接状态条」（总览页没有）。</p>
+  <pre class="wire">┌─ 侧栏 ──────────────┬─ 顶栏 ─────────────────────────────────────┐
+│ 会话与连接           │ 控制台 / 当前页    [搜索 Ctrl+K] [项目▼] [退出] │
+│  ▣ 总览              ├─────────────────────────────────────────────┤
+│  ◷ 历史              │ （非总览时）x/y 连接在线 · 查看智能体 · 实时     │
+│  ◉ 记忆              ├─────────────────────────────────────────────┤
+│  ⎔ 智能体            │                 页面内容                       │
+│ 资产                 │                                               │
+│  ⌁ 凭证库            │                                               │
+│  ▣ 成稿库            │                                               │
+│  ▦ 知识库            │                                               │
+│ 管理                 │                                               │
+│  ◇ 项目 · 🔑 密钥与回执│                                               │
+│  📱 授权设备 · ⚙ 设置 │                                               │
+└──────────────────────┴───────────────────────────────────────────────┘</pre>
+  <ul class="plain">
+    <li><kbd>Ctrl</kbd>+<kbd>K</kbd>：命令面板，按名称跳转任意模块。</li>
+    <li>顶栏<strong>项目</strong>：筛选全局 / 某项目（影响历史、记忆等列表）。</li>
+  </ul>
+  <figure>
+    <img src="images/01-console-shell.png" alt="总览壳层" onerror="this.onerror=null;this.src='images/01-console-shell.svg'" />
+    <figcaption><span class="tag">壳层</span> 登录后默认「总览」</figcaption>
+  </figure>
+
+  <h2 id="s1">1. 登录 / 注册</h2>
+  <p>登录卡分段控件文案为：<strong>API Key</strong> · <strong>邮箱登录</strong> · <strong>注册</strong>。左下角显示 API <code>healthz</code> 延迟。</p>
+  <pre class="wire">┌──────────────────────────────────────────┐
+│  共享记忆                                 │
+│  [ API Key | 邮箱登录 | 注册 ]  ← 分段滑块 │
+│                                          │
+│  API Key：粘贴 sm_… →「进入控制台」        │
+│  邮箱登录：邮箱+密码 →「登录」             │
+│  注册：≥8 位密码 → 一次性 sm_… → 复制后    │
+│        「已保存，进入控制台」               │
+└──────────────────────────────────────────┘</pre>
+  <figure>
+    <img src="images/02-login.png" alt="登录页" onerror="this.onerror=null;this.src='images/02-login.svg'" />
+    <figcaption><span class="tag">登录</span> API Key 分段</figcaption>
+  </figure>
+  <ol class="steps">
+    <li>本机 API 已启动（默认 <code>http://127.0.0.1:18080/healthz</code> → <code>ok</code>）。</li>
+    <li>开发控制台默认 <code>http://127.0.0.1:15173</code>。</li>
+    <li>进入后默认打开 <strong>总览</strong>（<code>#overview</code>）。</li>
+  </ol>
+
+  <h2 id="s2">2. 总览</h2>
+  <p>Bento 工作台：连接概览 Hero、待确认/项目侧卡、常用入口磁贴（智能体 / 历史 / 记忆 / 密钥）。</p>
+  <pre class="wire">┌─ 连接概览（大）──────────┬ 待确认 / 项目 ─┐
+│ 在线 n / 总数 m           │ 候选数 · 项目数 │
+│ [智能体连接]              │                │
+├──────────────────────────┴────────────────┤
+│ 在线占比条                                  │
+│ 今天先点哪：智能体 · 历史 · 记忆 · 密钥 …   │
+└───────────────────────────────────────────┘</pre>
+
+  <h2 id="s3">3. 智能体（重点 · v0.1.0）</h2>
+  <p>按产品分组的<strong>连接卡片</strong>。组头显示「在线 a/b · 最近时间」与产品级「查看历史」。</p>
+
+  <h3>3.1 页头操作</h3>
+  <pre class="wire">连接实例          [ 添加连接 ]  [ 查看全部历史会话 ]</pre>
+  <table>
+    <tr><th>按钮</th><th>作用</th></tr>
+    <tr><td><strong>添加连接</strong></td><td>选产品（Cursor / 豆包 / …）、备注、可选「专用 API 密钥」「认领历史」</td></tr>
+    <tr><td><strong>查看全部历史会话</strong></td><td>打开历史页，<strong>不限</strong>产品与连接</td></tr>
+  </table>
+
+  <h3>3.2 产品组头</h3>
+  <pre class="wire">┌ Cursor / cursor ──── 在线 1/1 · 最近 …  [查看历史] ─┐</pre>
+  <p>组头 <strong>查看历史</strong>：进入历史页并按该<strong>产品</strong>（agent）筛选，不限本连接。</p>
+
+  <h3>3.3 连接卡片</h3>
+  <pre class="wire">│ ┌─ 公司PC ───────────────────────────────────────┐ │
+│ │ [进程在线|离线]  [已注册连接]                    │ │
+│ │ 公司PC                         [编辑]           │ │
+│ │ [活跃 · …]  最近 …                              │ │
+│ │ Key / 上报 / 召回 / 心跳 / 创建 …               │ │
+│ │ （豆包仅心跳时）提示：须 Skill 调用 ingest       │ │
+│ │                                                 │ │
+│ │ [查看历史会话] [查看回执] [下载配置脚本]         │ │
+│ │ [配置步骤] [密钥页] [认领历史] [吊销]            │ │
+│ └─────────────────────────────────────────────────┘ │</pre>
+  <table>
+    <tr><th>卡片按钮</th><th>作用</th></tr>
+    <tr><td><strong>查看历史会话</strong></td><td>历史页且<strong>仅本连接</strong>（带 <code>connection_id</code>）</td></tr>
+    <tr><td>查看回执</td><td>行内展开最近召回回执</td></tr>
+    <tr><td>下载配置脚本</td><td>需创建时勾选专用 Key；zip 内已含密钥与 <code>PUBLIC_API_URL</code></td></tr>
+    <tr><td>配置步骤</td><td>Cursor / 豆包引导；密钥可回显（若脚本仍在）</td></tr>
+    <tr><td>密钥页 / 认领历史 / 吊销</td><td>跳转或管理该连接</td></tr>
+  </table>
+  <figure>
+    <img src="images/04-agents.png" alt="智能体" onerror="this.onerror=null;this.src='images/04-agents.svg'" />
+    <figcaption><span class="tag">智能体</span> 连接卡片（非旧版整表一行）</figcaption>
+  </figure>
+  <figure>
+    <img src="images/04-agents-add.png" alt="添加连接" onerror="this.onerror=null;this.src='images/04-agents-add.svg'" />
+    <figcaption><span class="tag">添加连接</span> 产品含「豆包」；勾选专用 API 密钥</figcaption>
+  </figure>
+
+  <div class="note">
+    <strong>进程在线</strong> = MCP/心跳在跑；<strong>活跃</strong> = 近期有 ingest/recall。
+    豆包可以「在线」但历史仍空——必须在工作模式用 Skill 调用 <code>memory_ingest</code>。
+  </div>
+
+  <h2 id="s4">4. 历史会话</h2>
+  <p>左列表、右详情。推荐从智能体卡片进入，避免混进其它连接的会话。</p>
+  <pre class="wire">┌─ 会话历史 ─ 筛选：智能体 / 日期 ─ [过滤] [清除范围] ─┐
+│ 当前范围：智能体 cursor · 仅连接 a1b2c3d4…           │
+│ （或：不限连接 / 账号下全部会话）                      │
+│ ┌ 列表 ──────────┐ ┌ 详情 ──────────────────────────┐ │
+│ │ 标题 · agent   │ │ 开始于 … · 主智能体              │ │
+│ │ n 条 · 时间     │ │ 用户/助手消息 · 技能/插件/工具    │ │
+│ └────────────────┘ └────────────────────────────────┘ │
+└───────────────────────────────────────────────────────┘</pre>
+  <ol class="steps">
+    <li><strong>查看历史会话</strong>（卡片）→ 只显示该连接。</li>
+    <li><strong>查看历史</strong>（组头）→ 该产品下全部连接。</li>
+    <li><strong>查看全部历史会话</strong>（页头）→ 账号下全部会话。</li>
+    <li>点左侧会话 → 右侧看消息；策略关闭原文时仅显示溯源。</li>
+  </ol>
+  <figure>
+    <img src="images/03-history-split.png" alt="历史" onerror="this.onerror=null;this.src='images/03-history-split.svg'" />
+    <figcaption><span class="tag">历史</span> 分栏列表 + 详情</figcaption>
+  </figure>
+
+  <h2 id="s5">5. 记忆 · 资产 · 管理（摘要）</h2>
+  <table>
+    <tr><th>模块</th><th>做什么</th></tr>
+    <tr><td>记忆</td><td>召回试跑、画像、实体别名、记忆更正/失效</td></tr>
+    <tr><td>凭证库</td><td>待确认口令入库 / 拒收；查看需登录密码</td></tr>
+    <tr><td>成稿库</td><td>待确认成稿保存；导出 Markdown；可入知识库</td></tr>
+    <tr><td>知识库</td><td>上传文档、状态 pending→ready、参与召回</td></tr>
+    <tr><td>项目</td><td>创建/切换项目上下文</td></tr>
+    <tr><td>密钥与回执</td><td>签发/吊销 API Key；查看 Recall Receipt</td></tr>
+    <tr><td>授权设备</td><td>设备码登录（<code>smctl login</code>）后的 Daemon 设备</td></tr>
+    <tr><td>设置</td><td>账号策略、Embedding 等</td></tr>
+  </table>
+  <p>配图：<code>images/05-memory</code> … <code>12-settings</code>（png 优先，否则 svg）。</p>
+
+  <h2 id="s6">6. 接 Cursor / 豆包（v0.1.0）</h2>
+
+  <h3>6.1 Cursor（Windows）</h3>
+  <ol class="steps">
+    <li>智能体 → 添加连接 → 产品 <strong>Cursor</strong> → 勾选<strong>专用 API 密钥</strong> → 创建。</li>
+    <li><strong>下载配置脚本</strong>，解压双击 <code>.cmd</code>（与 Cursor 同一 Windows 用户）。</li>
+    <li>或打开<strong>配置步骤</strong>：合并 hooks、MCP、<code>credentials.json</code>。</li>
+    <li>完全退出并重开 Cursor；历史中应出现新会话（钩子写入）。</li>
+  </ol>
+  <p>说明见公开文档中的 Cursor 稳定安装说明。验证版本：Cursor Windows <strong>3.27.14</strong>。</p>
+
+  <h3>6.2 豆包（Windows 桌面 · 工作/Agent）</h3>
+  <ol class="steps">
+    <li>添加连接 → 产品 <strong>豆包</strong> → 勾选专用密钥 → 下载配置脚本（尽量自动装 Skill）。</li>
+    <li>卡片上打开<strong>配置步骤</strong>，按字段复制到豆包连接器。</li>
+    <li>豆包 → 插件·技能·伙伴 → 新建自定义连接器 · <strong>STDIO</strong>。</li>
+    <li>表单<strong>逐项填写</strong>（不要把 JSON 整段贴进「命令」）：
+      <ul class="plain">
+        <li>命令 = <code>shared-memory-mcp.exe</code> 的<strong>绝对路径</strong></li>
+        <li>参数留空</li>
+        <li>环境变量：<code>SHARED_MEMORY_API_URL</code> / <code>API_KEY</code> / <code>AGENT=doubao</code> / <code>CONNECTION_ID</code></li>
+      </ul>
+    </li>
+    <li>技能「我安装的」中确认 <code>shared-memory</code>；新开<strong>工作任务</strong>，用 Skill 做 recall + ingest。</li>
+    <li>智能体页「活跃」更新后，再「查看历史会话」。</li>
+  </ol>
+  <div class="warn">
+    豆包<strong>没有</strong>静默 hook：普通闲聊窗口不会自动进平台。手机 App 不支持本方案。
+  </div>
+
+  <h2 id="s7">7. PUBLIC_API_URL（部署必配）</h2>
+  <p>配置脚本与控制台「配置步骤」里的 API 地址，来自 API 进程的 <code>.env</code>，不是前端写死域名。</p>
+  <pre class="wire"># 仓库根目录 .env
+HTTP_ADDR=:18080
+PUBLIC_API_URL=http://你的域名:端口     # 客户端必须能访问到
+# 本机同机调试可用：
+# PUBLIC_API_URL=http://127.0.0.1:18080</pre>
+  <ul class="plain">
+    <li>修改后<strong>重启 API</strong>。</li>
+    <li>重新<strong>下载配置脚本</strong>，或改豆包连接器里的 <code>SHARED_MEMORY_API_URL</code>。</li>
+    <li>控制台通过 <code>GET /v1/me</code> → <code>public_api_url</code> 展示。</li>
+    <li>完整说明：部署指南中的 <code>PUBLIC_API_URL</code> 专节。</li>
+  </ul>
+
+  <footer>
+    共享记忆 v0.1.0 · 图文手册（对齐当前控制台文案与按钮）·
+    截图：<code>scripts/capture-manual-screenshots.ps1</code> ·
+    同步：本文件与 <code>images/</code> → <code>web/public/docs/manual/</code>。
+  </footer>
+  <script>
+    document.querySelectorAll("img[src$='.png']").forEach((img) => {
+      if (!img.getAttribute("onerror")) {
+        img.onerror = function () {
+          this.onerror = null;
+          this.src = this.src.replace(/\.png($|\?)/, ".svg$1");
+        };
+      }
+    });
+  </script>
+</body>
+</html>

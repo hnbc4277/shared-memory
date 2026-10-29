@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import type { Message, RecallReceipt, Session, ToolCall } from "../api/client";
 import { fmtTime, useApp, useLoad } from "../ctx";
 import { Chip, ChipList, Empty, ErrorLine, Section } from "../ui";
@@ -8,61 +8,144 @@ function toRFC3339Date(d: string, endOfDay: boolean): string | undefined {
   return endOfDay ? `${d}T23:59:59Z` : `${d}T00:00:00Z`;
 }
 
+function readAndClearSessionNav(): { agent: string; connectionId: string } {
+  const agent = sessionStorage.getItem("sm.historyAgent") ?? "";
+  const connectionId = sessionStorage.getItem("sm.historyConnectionId") ?? "";
+  sessionStorage.removeItem("sm.historyAgent");
+  sessionStorage.removeItem("sm.historyConnectionId");
+  return { agent, connectionId };
+}
+
 export default function HistoryPage() {
   const { api, projectId, projects } = useApp();
   const [agentPath, setAgentPath] = useState("");
+  const [connectionId, setConnectionId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [applied, setApplied] = useState({ agent: "", from: "", to: "" });
+  const [applied, setApplied] = useState({
+    agent: "",
+    connectionId: "",
+    from: "",
+    to: "",
+  });
   const [selected, setSelected] = useState<string | null>(null);
 
+  useEffect(() => {
+    const nav = readAndClearSessionNav();
+    if (!nav.agent && !nav.connectionId) return;
+    setAgentPath(nav.agent);
+    setConnectionId(nav.connectionId);
+    setApplied({ agent: nav.agent, connectionId: nav.connectionId, from: "", to: "" });
+  }, []);
+
   const sessions = useLoad(
-    () => api.get<Session[]>("/v1/sessions", {
-      project_id: projectId,
-      agent_path: applied.agent,
-      from: toRFC3339Date(applied.from, false),
-      to: toRFC3339Date(applied.to, true),
-      limit: 100,
-    }),
+    () =>
+      api.get<Session[]>("/v1/sessions", {
+        project_id: projectId,
+        agent: applied.agent || undefined,
+        connection_id: applied.connectionId || undefined,
+        from: toRFC3339Date(applied.from, false),
+        to: toRFC3339Date(applied.to, true),
+        limit: 100,
+      }),
     [api, projectId, applied],
   );
   const projectName = (id: string | null) => (id ? projects.find((p) => p.id === id)?.name ?? "项目" : "全局");
+
+  const scopeHint = (() => {
+    if (applied.connectionId) {
+      return `当前范围：智能体 ${applied.agent || "（未指定）"} · 仅连接 ${applied.connectionId.slice(0, 8)}…`;
+    }
+    if (applied.agent) return `当前范围：智能体 ${applied.agent} · 不限连接`;
+    return "当前范围：账号下全部会话";
+  })();
 
   return (
     <div className="split">
       <Section
         title="会话历史"
         actions={
-          <form className="row wrap" onSubmit={(e) => {
-            e.preventDefault();
-            setApplied({ agent: agentPath.trim(), from, to });
-          }}>
-            <input value={agentPath} onChange={(e) => setAgentPath(e.target.value)} placeholder="智能体路径" className="wide" />
+          <form
+            className="row wrap"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setApplied({
+                agent: agentPath.trim(),
+                connectionId,
+                from,
+                to,
+              });
+            }}
+          >
+            <input
+              value={agentPath}
+              onChange={(e) => setAgentPath(e.target.value)}
+              placeholder="智能体路径"
+              className="wide"
+            />
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} title="从" />
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="到" />
-            <button>过滤</button>
+            <button type="submit">过滤</button>
+            {(applied.connectionId || applied.agent) && (
+              <button
+                type="button"
+                className="btn link"
+                onClick={() => {
+                  setAgentPath("");
+                  setConnectionId("");
+                  setFrom("");
+                  setTo("");
+                  setApplied({ agent: "", connectionId: "", from: "", to: "" });
+                }}
+              >
+                清除范围
+              </button>
+            )}
           </form>
         }
       >
+        <p className="muted small history-scope">{scopeHint}</p>
         <ErrorLine error={sessions.error} />
-        {sessions.data?.length === 0 && <Empty>还没有会话。把 API Key 配置到 Cursor / Codex / 小龙虾等智能体后，聊天会自动出现在这里。</Empty>}
+        {sessions.data?.length === 0 && (
+          <Empty>还没有会话。把 API Key 配置到 Cursor / 豆包等智能体后，聊天会自动出现在这里。</Empty>
+        )}
         <ul className="list">
           {sessions.data?.map((s) => (
-            <li key={s.id} className={selected === s.id ? "item selected" : "item"} onClick={() => setSelected(s.id)}>
+            <li
+              key={s.id}
+              className={selected === s.id ? "item selected" : "item"}
+              onClick={() => setSelected(s.id)}
+            >
               <div className="item-title">
                 <span>{s.title || "未命名会话"}</span>
-                {s.degraded && <Chip tone="warn" title="写入时队列不可用，语义记忆可能缺失">降级</Chip>}
+                {s.degraded && (
+                  <Chip tone="warn" title="写入时队列不可用，语义记忆可能缺失">
+                    降级
+                  </Chip>
+                )}
               </div>
               <div className="item-meta">
-                {s.agent_paths.map((p) => <Chip key={p} tone="agent">{p}</Chip>)}
+                {s.agent_paths.map((p) => (
+                  <Chip key={p} tone="agent">
+                    {p}
+                  </Chip>
+                ))}
                 <span className="muted">{projectName(s.project_id)}</span>
-                <span className="muted">{s.message_count} 条 · {fmtTime(s.last_active_at)}</span>
+                <span className="muted">
+                  {s.message_count} 条 · {fmtTime(s.last_active_at)}
+                </span>
               </div>
             </li>
           ))}
         </ul>
       </Section>
-      {selected ? <SessionDetail id={selected} /> : <Section title="会话详情"><Empty>选择左侧会话查看每条消息的来源智能体、技能、插件与模型。</Empty></Section>}
+      {selected ? (
+        <SessionDetail id={selected} />
+      ) : (
+        <Section title="会话详情">
+          <Empty>选择左侧会话查看每条消息的来源智能体、技能、插件与模型。</Empty>
+        </Section>
+      )}
     </div>
   );
 }
@@ -130,8 +213,14 @@ function ToolCallList({ calls }: { calls: ToolCall[] }) {
     <ul className="tool-calls">
       {calls.map((tc, i) => (
         <li key={i}>
-          <Chip tone="tool">{tc.kind}:{tc.name}</Chip>
-          <span className="muted small"> {tc.started_at}{tc.ended_at ? ` → ${tc.ended_at}` : ""}</span>
+          <Chip tone="tool">
+            {tc.kind}:{tc.name}
+          </Chip>
+          <span className="muted small">
+            {" "}
+            {tc.started_at}
+            {tc.ended_at ? ` → ${tc.ended_at}` : ""}
+          </span>
         </li>
       ))}
     </ul>
@@ -141,7 +230,9 @@ function ToolCallList({ calls }: { calls: ToolCall[] }) {
 function AttachmentThumbs({ ids }: { ids: string[] }) {
   return (
     <div className="thumbs row">
-      {ids.map((id) => <Thumb key={id} id={id} />)}
+      {ids.map((id) => (
+        <Thumb key={id} id={id} />
+      ))}
     </div>
   );
 }
