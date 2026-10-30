@@ -63,7 +63,7 @@ func (r *Router) handleCreateAgentConnection(w http.ResponseWriter, req *http.Re
 		}
 		r.asyncReindexClaimedConnection(accountID, res.Connection.ID)
 	}
-	if r.attachCursorSetupScript(req.Context(), accountID, body.Agent, res.Connection.ID, res.APIKey) {
+	if r.attachSetupScript(req.Context(), accountID, body.Agent, res.Connection.ID, res.APIKey) {
 		res.Connection.HasSetupScript = true
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -140,7 +140,7 @@ func (r *Router) handleUpgradeAgentConnection(w http.ResponseWriter, req *http.R
 	if body.ClaimHistory {
 		r.asyncReindexClaimedConnection(accountOf(req), res.Connection.ID)
 	}
-	if r.attachCursorSetupScript(req.Context(), accountOf(req), res.Connection.Agent, res.Connection.ID, res.APIKey) {
+	if r.attachSetupScript(req.Context(), accountOf(req), res.Connection.Agent, res.Connection.ID, res.APIKey) {
 		res.Connection.HasSetupScript = true
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -152,21 +152,66 @@ func (r *Router) handleUpgradeAgentConnection(w http.ResponseWriter, req *http.R
 	})
 }
 
-func (r *Router) attachCursorSetupScript(ctx context.Context, accountID uuid.UUID, agent string, connectionID uuid.UUID, apiKey string) bool {
-	if r.Agents == nil || !strings.EqualFold(strings.TrimSpace(agent), "cursor") || strings.TrimSpace(apiKey) == "" {
+func (r *Router) attachSetupScript(ctx context.Context, accountID uuid.UUID, agent string, connectionID uuid.UUID, apiKey string) bool {
+	if r.Agents == nil || !agents.SupportsSetupScript(agent) || strings.TrimSpace(apiKey) == "" {
 		return false
 	}
-	// Binaries are served by the API at /downloads/*; bake public URL for remote clients.
 	apiURL := strings.TrimRight(strings.TrimSpace(r.PublicAPIURL), "/")
 	if apiURL == "" {
 		apiURL = cred.DefaultAPIURL
 	}
-	script := agents.RenderCursorSetupScript(apiURL, apiKey, connectionID.String(), apiURL)
+	var script string
+	if strings.EqualFold(strings.TrimSpace(agent), "cursor") {
+		script = agents.RenderCursorSetupScript(apiURL, apiKey, connectionID.String(), apiURL)
+	} else {
+		script = agents.RenderGenericSetupScript(apiURL, apiKey, connectionID.String(), agents.SetupInstallAgent(agent))
+	}
 	if err := r.Agents.SaveSetupScript(ctx, accountID, connectionID, script); err != nil {
-		log.Printf("save cursor setup script %s: %v", connectionID, err)
+		log.Printf("save setup script %s: %v", connectionID, err)
 		return false
 	}
 	return true
+}
+
+// handleConnectionSetupCredentials returns the dedicated API key baked into the
+// connection's setup script so configuration guides can show it after create-time.
+func (r *Router) handleConnectionSetupCredentials(w http.ResponseWriter, req *http.Request) {
+	if r.Agents == nil {
+		writeError(w, http.StatusServiceUnavailable, "智能体服务暂不可用")
+		return
+	}
+	id, ok := pathID(w, req)
+	if !ok {
+		return
+	}
+	script, _, _, err := r.Agents.GetSetupScript(req.Context(), accountOf(req), id)
+	if errors.Is(err, agents.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "setup credentials not available; recreate the connection with a dedicated API key")
+		return
+	}
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if strings.Contains(script, "__SM_API_KEY__") {
+		writeError(w, http.StatusConflict, "setup script is incomplete; recreate the connection with a dedicated API key")
+		return
+	}
+	apiURL, apiKey, connID, _, okParse := agents.ParseCursorSetupScriptValues(script)
+	if !okParse {
+		writeError(w, http.StatusNotFound, "setup credentials not available; recreate the connection with a dedicated API key")
+		return
+	}
+	if pub := strings.TrimRight(strings.TrimSpace(r.PublicAPIURL), "/"); pub != "" {
+		if apiURL == "" || strings.Contains(apiURL, "127.0.0.1") || strings.Contains(apiURL, "localhost") {
+			apiURL = pub
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"connection_id": connID,
+		"api_key":       apiKey,
+		"api_url":       apiURL,
+	})
 }
 
 func (r *Router) handleDownloadConnectionSetupScript(w http.ResponseWriter, req *http.Request) {
@@ -178,9 +223,9 @@ func (r *Router) handleDownloadConnectionSetupScript(w http.ResponseWriter, req 
 	if !ok {
 		return
 	}
-	script, label, err := r.Agents.GetSetupScript(req.Context(), accountOf(req), id)
+	script, label, agent, err := r.Agents.GetSetupScript(req.Context(), accountOf(req), id)
 	if errors.Is(err, agents.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "setup script not available; recreate the Cursor connection with a dedicated API key")
+		writeError(w, http.StatusNotFound, "setup script not available; recreate the connection with a dedicated API key")
 		return
 	}
 	if err != nil {
@@ -188,49 +233,52 @@ func (r *Router) handleDownloadConnectionSetupScript(w http.ResponseWriter, req 
 		return
 	}
 	if strings.Contains(script, "__SM_API_KEY__") || strings.Contains(script, "__SM_CONNECTION_ID__") {
-		writeError(w, http.StatusConflict, "setup script is incomplete; recreate the Cursor connection with a dedicated API key")
+		writeError(w, http.StatusConflict, "setup script is incomplete; recreate the connection with a dedicated API key")
 		return
 	}
-	// Re-render with current template so old packages get the sentinel fix + single-quoted bakes.
-	if apiURL, apiKey, connID, dlBase, ok := agents.ParseCursorSetupScriptValues(script); ok {
-		if pub := strings.TrimRight(strings.TrimSpace(r.PublicAPIURL), "/"); pub != "" {
-			if apiURL == "" || strings.Contains(apiURL, "127.0.0.1") || strings.Contains(apiURL, "localhost") {
-				apiURL = pub
+	if strings.EqualFold(strings.TrimSpace(agent), "cursor") {
+		if apiURL, apiKey, connID, dlBase, ok := agents.ParseCursorSetupScriptValues(script); ok {
+			if pub := strings.TrimRight(strings.TrimSpace(r.PublicAPIURL), "/"); pub != "" {
+				if apiURL == "" || strings.Contains(apiURL, "127.0.0.1") || strings.Contains(apiURL, "localhost") {
+					apiURL = pub
+				}
+				if dlBase == "" || strings.Contains(dlBase, "127.0.0.1") || strings.Contains(dlBase, "localhost") {
+					dlBase = pub
+				}
 			}
-			if dlBase == "" || strings.Contains(dlBase, "127.0.0.1") || strings.Contains(dlBase, "localhost") {
-				dlBase = pub
-			}
+			script = agents.RenderCursorSetupScript(apiURL, apiKey, connID, dlBase)
 		}
-		script = agents.RenderCursorSetupScript(apiURL, apiKey, connID, dlBase)
 	}
 	if pub := strings.TrimRight(strings.TrimSpace(r.PublicAPIURL), "/"); pub != "" {
 		script = rewriteSetupScriptLocalURLs(script, pub)
 	}
-	base := agents.SetupScriptBaseName(id.String())
+	base := agents.SetupZipBaseName(agent, id.String())
 	ps1Name := base + ".ps1"
 	cmdName := base + ".cmd"
 	cmdBody := agents.RenderCursorSetupLauncher()
+	if !strings.EqualFold(strings.TrimSpace(agent), "cursor") {
+		cmdBody = agents.RenderGenericSetupLauncher(agents.SetupInstallAgent(agent))
+	}
 	displayLabel := strings.TrimSpace(label)
 	if displayLabel == "" {
 		displayLabel = id.String()
 	}
 	notice := fmt.Sprintf(
-		"This package is for connection [%s] only.\r\n"+
+		"This package is for connection [%s] (%s) only.\r\n"+
 			"connection_id and the dedicated API key are already inside the .ps1 — no need to type them.\r\n"+
 			"Do NOT forward, upload, or commit this zip.\r\n"+
 			"Unzip, then double-click %s to install.\r\n"+
 			"\r\n"+
-			"本包仅适用于连接「%s」。\r\n"+
+			"本包仅适用于连接「%s」（%s）。\r\n"+
 			"脚本内已含 connection_id 与专用 API 密钥，执行时无需再填写。\r\n"+
 			"请勿转发或上传。解压后双击 %s 即可。\r\n",
-		displayLabel, cmdName, displayLabel, cmdName,
+		displayLabel, agent, cmdName, displayLabel, agent, cmdName,
 	)
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, base))
 	zw := zip.NewWriter(w)
 	defer zw.Close()
-	// UTF-8 BOM so Windows PowerShell 5.1 and Notepad read Chinese correctly.
 	noticeBytes := append([]byte{0xEF, 0xBB, 0xBF}, []byte(notice)...)
 	if err := writeZipFile(zw, "README.txt", noticeBytes); err != nil {
 		log.Printf("setup zip notice: %v", err)
@@ -244,6 +292,7 @@ func (r *Router) handleDownloadConnectionSetupScript(w http.ResponseWriter, req 
 		log.Printf("setup zip cmd: %v", err)
 		return
 	}
+	r.appendSetupBundle(zw, agent)
 }
 
 func rewriteSetupScriptLocalURLs(script, public string) string {

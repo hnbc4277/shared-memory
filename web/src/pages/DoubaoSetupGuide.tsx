@@ -1,5 +1,6 @@
 import { CodeBlock, Modal } from "../ui";
 import { usePublicApiUrl } from "../usePublicApiUrl";
+import { useSetupCredentials } from "../useSetupCredentials";
 
 function StepBadge({ kind }: { kind: "auto" | "manual" | "check" }) {
   if (kind === "manual") {
@@ -40,11 +41,13 @@ export function DoubaoSetupGuide({
   apiKey?: string;
   onClose?: () => void;
 }) {
-  const hasKey = Boolean(apiKey && apiKey.length > 0);
-  const key = hasKey ? apiKey! : "<把创建连接时显示的专用密钥贴这里>";
-  const publicApi = usePublicApiUrl();
+  const creds = useSetupCredentials(connectionId, apiKey);
+  const hasKey = Boolean(creds.apiKey);
+  const displayKey = creds.apiKey;
+  const { url: publicApi, loading: publicApiLoading } = usePublicApiUrl();
   // Doubao STDIO 表单通常不展开 %USERPROFILE%，请用绝对路径。
   const mcpCommand = "C:\\Users\\<你的Windows用户名>\\.shared-memory\\shared-memory-mcp.exe";
+  const apiUrlValue = publicApiLoading && !publicApi ? "（正在读取 API 配置 PUBLIC_API_URL…）" : publicApi;
 
   return (
     <Modal title="豆包配置步骤" onClose={onClose ?? (() => {})} wide>
@@ -68,14 +71,16 @@ export function DoubaoSetupGuide({
             <CodeBlock label="connection_id">
               <pre>{connectionId}</pre>
             </CodeBlock>
-            {hasKey ? (
+            {creds.loading ? (
+              <p className="small muted">正在从本连接的配置脚本读取专用密钥…</p>
+            ) : hasKey ? (
               <CodeBlock label="专用 API 密钥">
-                <pre>{apiKey}</pre>
+                <pre>{displayKey}</pre>
               </CodeBlock>
             ) : (
               <p className="small muted">
-                未取到密钥时，到本机 <code>%USERPROFILE%\.shared-memory\credentials.json</code> 或安装目录{" "}
-                <code>mcp.connector.json</code> 复制；没有则吊销后重建并勾选「专用 API 密钥」。
+                未取到密钥：到本机 <code>%USERPROFILE%\.shared-memory\credentials.json</code> 或{" "}
+                <code>mcp.connector.json</code> 复制；仍没有则吊销后重建并勾选「专用 API 密钥」。
               </p>
             )}
           </li>
@@ -99,11 +104,26 @@ export function DoubaoSetupGuide({
             <FieldCopy field="变量名 1" value="SHARED_MEMORY_API_URL" />
             <FieldCopy
               field="变量值 1"
-              hint="来自 API 配置 PUBLIC_API_URL；本机同机可改成 http://127.0.0.1:18080"
-              value={publicApi}
+              hint="直接复制下面的地址（读取自当前 API 配置 PUBLIC_API_URL，勿手填）"
+              value={apiUrlValue}
             />
             <FieldCopy field="变量名 2" value="SHARED_MEMORY_API_KEY" />
-            <FieldCopy field="变量值 2" value={key} />
+            <FieldCopy
+              field="变量值 2"
+              hint={
+                creds.loading
+                  ? "正在读取本连接配置脚本中的专用密钥…"
+                  : hasKey
+                    ? "直接复制下面的密钥到豆包连接器"
+                    : "无可用密钥：从本机 credentials.json / mcp.connector.json 复制，或吊销后重建并勾选「专用 API 密钥」"
+              }
+              value={creds.loading ? "（读取中…）" : displayKey}
+            />
+            {!creds.loading && !hasKey ? (
+              <p className="small muted doubao-field-note">
+                当前没有可展示的专用密钥（创建时未勾选专用密钥，或脚本里没有密钥）。吊销后重建并勾选即可。
+              </p>
+            ) : null}
             <FieldCopy field="变量名 3" value="SHARED_MEMORY_AGENT" />
             <FieldCopy field="变量值 3" value="doubao" />
             <FieldCopy field="变量名 4" value="SHARED_MEMORY_CONNECTION_ID" />

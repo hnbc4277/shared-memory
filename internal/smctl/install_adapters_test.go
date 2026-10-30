@@ -52,7 +52,7 @@ func TestInstallDoubao_WritesKit(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	dst, err := InstallDoubao()
+	dst, err := InstallDoubao("")
 	if err != nil {
 		t.Fatal(err)
 	}

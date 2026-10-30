@@ -21,6 +21,9 @@ bin/
 *.log
 web/vite-*.log
 
+# Local Docker data paths (machine-specific bind mounts)
+docker-compose.override.yml
+
 # Local-only notes (not for the public remote)
 docs/不公开/
 

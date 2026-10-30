@@ -535,23 +535,23 @@ func (s *Store) SaveSetupScript(ctx context.Context, accountID, connectionID uui
 	return nil
 }
 
-// GetSetupScript returns the stored setup script and connection label for download.
-func (s *Store) GetSetupScript(ctx context.Context, accountID, connectionID uuid.UUID) (script, label string, err error) {
+// GetSetupScript returns the stored setup script, connection label, and agent for download.
+func (s *Store) GetSetupScript(ctx context.Context, accountID, connectionID uuid.UUID) (script, label, agent string, err error) {
 	var raw *string
 	err = s.pool.QueryRow(ctx, `
-		SELECT setup_script, COALESCE(label,'')
+		SELECT setup_script, COALESCE(label,''), agent
 		FROM agent_connections
-		WHERE id = $1 AND account_id = $2 AND revoked_at IS NULL`, connectionID, accountID).Scan(&raw, &label)
+		WHERE id = $1 AND account_id = $2 AND revoked_at IS NULL`, connectionID, accountID).Scan(&raw, &label, &agent)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", ErrNotFound
+		return "", "", "", ErrNotFound
 	}
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if raw == nil || strings.TrimSpace(*raw) == "" {
-		return "", "", ErrNotFound
+		return "", "", "", ErrNotFound
 	}
-	return *raw, label, nil
+	return *raw, label, agent, nil
 }
 
 func scanConnection(row pgx.Row) (Connection, error) {

@@ -1,5 +1,6 @@
 import { CodeBlock, Modal } from "../ui";
 import { usePublicApiUrl } from "../usePublicApiUrl";
+import { useSetupCredentials } from "../useSetupCredentials";
 
 const HOOK_BIN = "%USERPROFILE%\\.shared-memory\\smhook.exe";
 const MCP_BIN = "%USERPROFILE%\\.shared-memory\\shared-memory-mcp.exe";
@@ -14,8 +15,10 @@ export function CursorSetupGuide({
   apiKey?: string;
   onClose?: () => void;
 }) {
-  const publicApi = usePublicApiUrl();
-  const key = apiKey && apiKey.length > 0 ? apiKey : "<专用密钥>";
+  const { url: publicApi } = usePublicApiUrl();
+  const setupCreds = useSetupCredentials(connectionId, apiKey);
+  const key = setupCreds.apiKey || (setupCreds.loading ? "（读取中…）" : "<专用密钥>");
+  const hasKey = Boolean(setupCreds.apiKey);
   const cred = {
     api_url: publicApi,
     api_key: key,
@@ -78,12 +81,16 @@ alwaysApply: true
             <CodeBlock label="connection_id">
               <pre>{connectionId}</pre>
             </CodeBlock>
-            {apiKey ? (
-              <CodeBlock label="专用 API 密钥（仅此次）">
-                <pre>{apiKey}</pre>
+            {setupCreds.loading ? (
+              <p className="small muted">正在从本连接的配置脚本读取专用密钥…</p>
+            ) : hasKey ? (
+              <CodeBlock label="专用 API 密钥">
+                <pre>{setupCreds.apiKey}</pre>
               </CodeBlock>
             ) : (
-              <p className="small muted">若密钥已丢失，吊销该连接后重新添加，并勾选「专用 API 密钥」。</p>
+              <p className="small muted">
+                未取到密钥。若创建时勾选了专用密钥，可「下载配置脚本」查看；否则请吊销后重新添加并勾选「专用 API 密钥」。
+              </p>
             )}
           </li>
           <li>
