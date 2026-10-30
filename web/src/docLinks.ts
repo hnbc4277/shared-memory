@@ -8,11 +8,12 @@ function repoPath(path: string): string {
   return `/${path.replace(/^\//, "")}`;
 }
 
+/** Console doc links — only paths that ship in the public tree / web/public. */
 export const DOC_LINKS = {
-  installCursor: repoPath("docs/superpowers/specs/2026-09-30-shared-memory-design.md"),
+  installCursor: repoPath("docs/公开/manual/CURSOR-STABLE-SETUP.md"),
   hermes: repoPath("adapters/hermes/README.md"),
   openclaw: repoPath("adapters/openclaw/README.md"),
   deepseek: repoPath("adapters/deepseek-harness/README.md"),
   doubao: repoPath("adapters/doubao/README.md"),
-  agentsSpec: repoPath("docs/superpowers/specs/2026-10-12-agent-connections-design.md"),
+  agentsSpec: repoPath("docs/公开/design/SYSTEM-DESIGN.md"),
 } as const;

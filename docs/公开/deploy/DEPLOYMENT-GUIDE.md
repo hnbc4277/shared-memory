@@ -78,7 +78,7 @@ docker compose ps
 docker compose --profile app up -d --build
 ```
 
-**重要：** 每次拉取含智能体连接等新路由的代码后，必须 **`--build`**，否则 Smoke 会出现 `GET /v1/agents` 404（见 [TEST-MATRIX.md](../TEST-MATRIX.md)）。
+**重要：** 每次拉取含智能体连接等新路由的代码后，必须 **`--build`**，否则 Smoke 会出现 `GET /v1/agents` 404（见 [验收清单](../ops/ACCEPTANCE.md)）。
 
 ### 3.3 验证 API
 

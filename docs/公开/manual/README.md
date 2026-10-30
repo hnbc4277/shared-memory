@@ -11,7 +11,7 @@
 | [Cursor 最稳接法](CURSOR-STABLE-SETUP.md) | 要把 Cursor 接到某条正式连接的人 | 钩子自动写入，MCP 负责召回 |
 | [图文手册.html](图文手册.html) | 需要看图的人 | 浏览器打开（推荐）；含总览 / 命令面板 / 各业务页 |
 | [全功能索引](FEATURE-INDEX.md) | QA / 验收 | **130+** 功能点：S / O / H / A … 编号与图号 |
-| [测试矩阵](../../不公开/TEST-MATRIX.md) | QA/发布前检查（内部） | 功能点逐项测试结果；公开仓可不收录 |
+| [验收清单](../ops/ACCEPTANCE.md) | 发布前检查 | 自托管验收项 |
 | [DEPLOY.md](../DEPLOY.md) | 快速清单 | 精简版上线检查 |
 | [API.md](../API.md) / [openapi.yaml](../openapi.yaml) | 集成开发 | HTTP 路由索引 |
 

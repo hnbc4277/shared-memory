@@ -21,8 +21,8 @@ bin/
 *.log
 web/vite-*.log
 
-# 私有设计/计划文档：公开仓勿提交
-[internal-notes]
+# Local-only notes (not for the public remote)
+docs/不公开/
 
-# 勿把过程稿挂到控制台静态目录
+# Do not publish draft specs via console static hosting
 web/public/docs/superpowers/

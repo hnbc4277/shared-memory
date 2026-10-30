@@ -21,7 +21,7 @@ npm run dev        # http://127.0.0.1:15173
 | `VITE_API_BASE` | `http://127.0.0.1:18080` | API 地址；API 侧需在 `CORS_ORIGINS` 中放行控制台来源 |
 | `VITE_REPO_DOCS_BASE` | （空） | 可选：GitHub blob 根路径，智能体 Tab 文档链指向仓库；未设时使用 `web/public/` 下静态副本 |
 
-发布前同步静态文档：`npm run sync-docs`（等价于仓库根目录 `scripts/sync-web-docs.ps1`，从 `[internal-notes] 等拷贝到 `web/public`），再 `npm run build`。CI 会执行根目录 `node scripts/check-web-docs-sync.mjs` 校验 `web/public` 未过期。仓库文档划分见 `docs/README.md`。
+发布前同步适配器说明到静态目录：`npm run sync-docs`（等价于仓库根 `scripts/sync-web-docs.ps1`），再 `npm run build`。CI 会执行 `node scripts/check-web-docs-sync.mjs` 校验 `web/public` 未过期。文档索引见 `docs/README.md`。
 
 其他命令：`npm test`（vitest 单测）、`npm run build`（类型检查 + 产物输出到 `dist/`）。
 

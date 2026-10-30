@@ -149,8 +149,7 @@ API 索引：[docs/公开/API.md](docs/公开/API.md) · OpenAPI：[docs/公开/
 | [docs/公开/DEPLOY.md](docs/公开/DEPLOY.md) | 部署、迁移、自托管清单 |
 | [docs/公开/API.md](docs/公开/API.md) | HTTP API 索引 |
 | [docs/公开/manual/](docs/公开/manual/) | 操作手册 |
-| [docs/README.md](docs/README.md) | 公开 / 不公开文档划分 |
-| `[internal-notes] | 内部计划与规格（**不要**放进公开远程） |
+| [docs/README.md](docs/README.md) | 文档目录索引 |
 
 ## License
 

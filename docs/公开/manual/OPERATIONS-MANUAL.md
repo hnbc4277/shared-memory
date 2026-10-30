@@ -797,7 +797,7 @@ go run ./cmd/worker -reindex
 powershell -File scripts/e2e-smoke.ps1
 ```
 
-结果解读：[TEST-MATRIX.md](../TEST-MATRIX.md)。
+结果解读：见 [验收清单](../ops/ACCEPTANCE.md)。
 
 ---
 
@@ -823,7 +823,7 @@ powershell -File scripts/e2e-smoke.ps1
 - [部署指南](../deploy/DEPLOYMENT-GUIDE.md)
 - [系统设计](../design/SYSTEM-DESIGN.md)
 - [迁移指南](../migration/MIGRATION-GUIDE.md)
-- [测试矩阵](../TEST-MATRIX.md)
+- [验收清单](../ops/ACCEPTANCE.md)
 - [文档导航](README.md)
 - [配图说明](images/README.md)
 

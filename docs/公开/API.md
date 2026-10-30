@@ -58,7 +58,7 @@ Base URL 默认 `http://127.0.0.1:18080`。鉴权：
 - **成功：** `204 No Content`（更新 `last_heartbeat_at`；同连接 **5s** 内重复请求仍返回 204 但不写库，降低写放大）。
 - **错误：** 缺少/无效 `connection_id` → `400`；Key 与连接不匹配 → `403`；未知或已吊销 → `404`。
 
-列表 / SSE 在 90s 窗口内反映 `process_online=true`。详见 `[internal-notes]
+列表 / SSE 在 90s 窗口内反映 `process_online=true`。
 
 ## 记忆、实体、KB、凭证、成稿
 
@@ -72,4 +72,4 @@ Base URL 默认 `http://127.0.0.1:18080`。鉴权：
 
 `GET /v1/ws` — JSON 消息 `ping|recall|ingest`；鉴权同 HTTP（Bearer、`wss_`、Cookie、query `access_token`、首包 `auth`）。
 
-完整行为见 `[internal-notes] 与各子规格。机器可读摘要：`docs/公开/openapi.yaml`。
+机器可读摘要见 [`docs/公开/openapi.yaml`](./openapi.yaml)。

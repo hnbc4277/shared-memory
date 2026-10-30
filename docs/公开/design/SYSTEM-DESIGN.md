@@ -1,7 +1,6 @@
 # Shared Memory 系统设计文档
 
-> **读者：** 第一次接触本项目的开发、运维或产品经理。  
-> **更细的规格：** [2026-09-30 主规格](../../../不公开/superpowers/specs/2026-09-30-shared-memory-design.md)、[知识库](../../../不公开/superpowers/specs/2026-10-09-knowledge-base-design.md)、[智能体连接](../../../不公开/superpowers/specs/2026-10-12-agent-connections-design.md)、[账号 Embedding](../../../不公开/superpowers/specs/2026-10-16-account-embedding-settings-design.md)。
+> **读者：** 第一次接触本项目的开发、运维或产品经理。
 
 ---
 
@@ -230,7 +229,7 @@ stateDiagram-v2
 | OpenSearch | HTTP | BM25/中文分词 |
 | Qdrant | HTTP | 向量 |
 | Redis | Streams | 任务队列 + 限流 |
-| Embedder | TEI `/embed` 或 OpenAI `/v1/embeddings` | **部署默认**（`.env` `EMBEDDER_*`）或 **账号覆盖**；未配置则 `HashEmbedder`。见 [账号 Embedding 规格](../../../不公开/superpowers/specs/2026-10-16-account-embedding-settings-design.md) |
+| Embedder | TEI `/embed` 或 OpenAI `/v1/embeddings` | **部署默认**（`.env` `EMBEDDER_*`）或 **账号覆盖**；未配置则 `HashEmbedder` |
 | LLM_DERIVER_*（可选） | OpenAI API | 语义 derive |
 | VISION_*（可选） | 多模态 API | 图片理解 |
 
@@ -262,8 +261,6 @@ stateDiagram-v2
 
 - **Schema：** `0001`–`0013`（账号 Embedding 落地后 +`0014_account_embedding_settings`），API 启动自动 migrate（见 [迁移指南](../migration/MIGRATION-GUIDE.md)）。
 - **索引：** 换 embedder（部署或账号）或新增 `source_connection_id` 后需重建向量投影；账号级为设置页「重建索引」，运维全局仍可用 `go run ./cmd/worker -reindex`。
-- **规格索引：** `[internal-notes] 分层见 [2026-10-16-account-embedding-settings-design.md](../../../不公开/superpowers/specs/2026-10-16-account-embedding-settings-design.md)。
-
 ---
 
 ## 11. 相关文档
@@ -271,5 +268,5 @@ stateDiagram-v2
 - [部署指南](../deploy/DEPLOYMENT-GUIDE.md)
 - [操作手册](../manual/OPERATIONS-MANUAL.md) · [图文手册](../manual/图文手册.html) · [全功能索引](../manual/FEATURE-INDEX.md)
 - [UI 选型对照（v01 / p07）](./UI-SCREENSHOT-GUIDE.md)
-- [测试矩阵](../TEST-MATRIX.md)
+- [验收清单](../ops/ACCEPTANCE.md)
 - [API 索引](../API.md)
