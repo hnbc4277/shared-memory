@@ -23,3 +23,6 @@ web/vite-*.log
 
 # 私有设计/计划文档：公开仓勿提交
 [internal-notes]
+
+# 勿把过程稿挂到控制台静态目录
+web/public/docs/superpowers/
