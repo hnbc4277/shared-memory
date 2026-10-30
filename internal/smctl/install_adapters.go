@@ -69,7 +69,9 @@ func InstallOpenClaw() (string, error) {
 
 // InstallDoubao copies the Doubao MCP+Skill kit to ~/.shared-memory/doubao
 // and writes a personalized mcp.connector.json plus INSTALL.txt.
-func InstallDoubao() (string, error) {
+// mcpPath is optional; when set (e.g. from setup zip --mcp), the binary is
+// copied under ~/.shared-memory so the connector keeps a stable absolute path.
+func InstallDoubao(mcpPath string) (string, error) {
 	src, err := findAdapterDir("doubao")
 	if err != nil {
 		return "", err
@@ -82,9 +84,23 @@ func InstallDoubao() (string, error) {
 	if err := copyTree(src, dst); err != nil {
 		return "", err
 	}
-	mcp, _ := lookBeside("shared-memory-mcp")
+	mcp := strings.TrimSpace(mcpPath)
+	if mcp == "" {
+		mcp, _ = lookBeside("shared-memory-mcp")
+	}
 	if mcp == "" {
 		mcp, _ = lookBeside("mcp")
+	}
+	if mcp != "" {
+		if abs, err := filepath.Abs(mcp); err == nil {
+			mcp = abs
+		}
+		stable := filepath.Join(home, ".shared-memory", filepath.Base(mcp))
+		if filepath.Clean(mcp) != filepath.Clean(stable) {
+			if err := copyFile(mcp, stable); err == nil {
+				mcp = stable
+			}
+		}
 	}
 	if mcp == "" {
 		mcp = "shared-memory-mcp"

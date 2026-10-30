@@ -85,7 +85,7 @@ func main() {
 			}
 			fmt.Printf("installed DeepSeek Harness kit → %s (see INSTALL.txt)\n", dst)
 		case "doubao":
-			dst, err := smctl.InstallDoubao()
+			dst, err := smctl.InstallDoubao(mcp)
 			if err != nil {
 				fail(err)
 			}
@@ -130,7 +130,7 @@ Usage:
   smctl install hermes
   smctl install openclaw|xiaolongxia
   smctl install deepseek-harness|deepseek
-  smctl install doubao
+  smctl install doubao [--mcp PATH]
   smctl status
   smctl logout [--revoke]
 

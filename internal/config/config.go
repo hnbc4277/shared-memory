@@ -110,7 +110,7 @@ func Load(path string) (Config, error) {
 		AgentHeartbeatOnlineSec:     90,
 		AgentActivityOnlineMin:      15,
 		WebStaticDir:                vals["WEB_STATIC_DIR"],
-		PublicAPIURL:               strings.TrimRight(vals["PUBLIC_API_URL"], "/"),
+		PublicAPIURL:               strings.TrimRight(firstNonEmpty(os.Getenv("PUBLIC_API_URL"), vals["PUBLIC_API_URL"]), "/"),
 		RateLimitPerMin:             120,
 		AuthRateLimitPerMin:         20,
 		AuthEmailRateLimitPerMin:    10,

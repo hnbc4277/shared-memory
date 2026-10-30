@@ -89,7 +89,7 @@ services:
       minio: {condition: service_started}
       opensearch: {condition: service_started}
       qdrant: {condition: service_started}
-      embedder: {condition: service_started}
+      # embedder is best-effort (model download can fail); API falls back to hash embedder
     restart: unless-stopped
   worker:
     profiles: [app]

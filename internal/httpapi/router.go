@@ -129,6 +129,7 @@ func NewRouter(d Deps) http.Handler {
 	handle("POST /v1/agents/connections/{id}/upgrade", r.handleUpgradeAgentConnection)
 	handle("POST /v1/agents/connections/{id}/claim-history", r.handleClaimAgentHistory)
 	handle("GET /v1/agents/connections/{id}/setup-script", r.handleDownloadConnectionSetupScript)
+	handle("GET /v1/agents/connections/{id}/setup-credentials", r.handleConnectionSetupCredentials)
 
 	handleRL("POST /v1/recall", "recall", r.handleRecall)
 	handle("GET /v1/recall/receipts", r.handleListRecallReceipts)

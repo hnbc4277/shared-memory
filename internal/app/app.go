@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -164,6 +165,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		WebStaticDir: cfg.WebStaticDir,
 		DownloadsDir: resolveDownloadsDir(),
 		PublicAPIURL: cfg.PublicAPIURL,
+	}
+	if strings.TrimSpace(a.Deps.PublicAPIURL) != "" {
+		log.Printf("PUBLIC_API_URL=%s", a.Deps.PublicAPIURL)
+	} else {
+		log.Printf("PUBLIC_API_URL unset (setup guides will fall back to console API base)")
 	}
 	if a.Deps.DownloadsDir != "" {
 		log.Printf("client downloads from %s", a.Deps.DownloadsDir)
